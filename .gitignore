@@ -1,0 +1,10 @@
+.env
+investec.openbanking.tui
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
