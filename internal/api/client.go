@@ -13,24 +13,57 @@ import (
 
 const baseURL = "https://openapi.investec.com"
 
+// defaultDateRangeDays is used for countries where the transactions endpoint
+// requires an explicit date range.
+const defaultDateRangeDays = 90
+
 // Client handles authentication and API requests to Investec Open Banking.
 type Client struct {
 	clientID     string
 	clientSecret string
 	apiKey       string
+	countryCode  string // ISO country code, e.g. "ZA" or "MU"
 	accessToken  string
 	tokenExpiry  time.Time
 	httpClient   *http.Client
 }
 
-// NewClient creates a new Investec API client.
-func NewClient(clientID, clientSecret, apiKey string) *Client {
+// NewClient creates a new Investec API client for the given country code.
+func NewClient(clientID, clientSecret, apiKey, countryCode string) *Client {
+	code := strings.ToUpper(strings.TrimSpace(countryCode))
+	if code == "" {
+		code = "ZA"
+	}
+
 	return &Client{
 		clientID:     clientID,
 		clientSecret: clientSecret,
 		apiKey:       apiKey,
+		countryCode:  code,
 		httpClient:   &http.Client{Timeout: 30 * time.Second},
 	}
+}
+
+// CountryCode returns the country this client is bound to.
+func (c *Client) CountryCode() string { return c.countryCode }
+
+// path builds a country-scoped private banking path, e.g. /mu/pb/v1/accounts.
+func (c *Client) path(suffix string) string {
+	return fmt.Sprintf("/%s/pb/v1%s", strings.ToLower(c.countryCode), suffix)
+}
+
+// RequiresDateRange reports whether the transactions endpoint for this country
+// requires explicit fromDate and toDate parameters. Only ZA defaults them
+// server-side.
+func (c *Client) RequiresDateRange() bool {
+	return c.countryCode != "ZA"
+}
+
+// DefaultDateRange returns a sensible fromDate/toDate pair (YYYY-MM-DD) for
+// countries that require an explicit date range.
+func DefaultDateRange() (fromDate, toDate string) {
+	now := time.Now()
+	return now.AddDate(0, 0, -defaultDateRangeDays).Format("2006-01-02"), now.Format("2006-01-02")
 }
 
 // Authenticate obtains an access token using client credentials.
@@ -113,37 +146,37 @@ func (c *Client) doGet(path string) ([]byte, error) {
 
 // GetAccounts returns all accounts for the authenticated user.
 func (c *Client) GetAccounts() ([]Account, error) {
-	body, err := c.doGet("/za/pb/v1/accounts")
+	body, err := c.doGet(c.path("/accounts"))
 	if err != nil {
 		return nil, fmt.Errorf("get accounts: %w", err)
 	}
-
-	var resp AccountsResponse
-	if err := json.Unmarshal(body, &resp); err != nil {
-		return nil, fmt.Errorf("decoding accounts: %w", err)
-	}
-	return resp.Data.Accounts, nil
+	return parseAccounts(body)
 }
 
 // GetBalance returns the balance for a specific account.
 func (c *Client) GetBalance(accountID string) (*Balance, error) {
-	path := fmt.Sprintf("/za/pb/v1/accounts/%s/balance", accountID)
-	body, err := c.doGet(path)
+	body, err := c.doGet(c.path(fmt.Sprintf("/accounts/%s/balance", accountID)))
 	if err != nil {
 		return nil, fmt.Errorf("get balance: %w", err)
 	}
-
-	var resp BalanceResponse
-	if err := json.Unmarshal(body, &resp); err != nil {
-		return nil, fmt.Errorf("decoding balance: %w", err)
-	}
-	return &resp.Data, nil
+	return parseBalance(body)
 }
 
 // GetTransactions returns transactions for a specific account within a date range.
-// fromDate and toDate should be ISO 8601 format (YYYY-MM-DD). Pass empty strings for defaults.
+// fromDate and toDate should be ISO 8601 format (YYYY-MM-DD). Pass empty strings
+// for defaults; countries that require an explicit range get a default window.
 func (c *Client) GetTransactions(accountID, fromDate, toDate string) ([]Transaction, error) {
-	path := fmt.Sprintf("/za/pb/v1/accounts/%s/transactions", accountID)
+	if c.RequiresDateRange() && (fromDate == "" || toDate == "") {
+		defaultFrom, defaultTo := DefaultDateRange()
+		if fromDate == "" {
+			fromDate = defaultFrom
+		}
+		if toDate == "" {
+			toDate = defaultTo
+		}
+	}
+
+	path := c.path(fmt.Sprintf("/accounts/%s/transactions", accountID))
 
 	params := url.Values{}
 	if fromDate != "" {
@@ -160,10 +193,5 @@ func (c *Client) GetTransactions(accountID, fromDate, toDate string) ([]Transact
 	if err != nil {
 		return nil, fmt.Errorf("get transactions: %w", err)
 	}
-
-	var resp TransactionsResponse
-	if err := json.Unmarshal(body, &resp); err != nil {
-		return nil, fmt.Errorf("decoding transactions: %w", err)
-	}
-	return resp.Data.Transactions, nil
+	return parseTransactions(body)
 }
