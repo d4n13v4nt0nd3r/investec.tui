@@ -32,28 +32,44 @@ func (v balanceView) render() string {
 
 	var b strings.Builder
 
-	b.WriteString(subtitleStyle.Render(fmt.Sprintf("%s  (%s)", v.account.AccountName, v.account.AccountNumber)))
+	b.WriteString(subtitleStyle.Render(fmt.Sprintf("%s  (%s)", v.account.DisplayName(), v.account.AccountNumber)))
 	b.WriteString("\n")
-	b.WriteString(normalRowStyle.Render(fmt.Sprintf("Product: %s", v.account.ProductName)))
-	b.WriteString("\n\n")
+
+	product := v.account.Product()
+	if product == "" {
+		product = v.balance.AccountType
+	}
+	if product != "" {
+		b.WriteString(normalRowStyle.Render(fmt.Sprintf("Product: %s", product)))
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
 
 	cur := v.balance.Currency
+	if cur == "" {
+		cur = v.account.AccountCurrency
+	}
 
-	rows := []struct {
+	for _, r := range v.balance.Rows() {
+		label := labelStyle.Render(r.Label + ":")
+		val := FormatAmount(r.Value, cur)
+		b.WriteString(fmt.Sprintf("%s %s\n", label, valueStyle.Render(val)))
+	}
+
+	// Interest rates are percentages, not amounts.
+	rates := []struct {
 		label string
 		value float64
 	}{
-		{"Available Balance", v.balance.AvailableBalance},
-		{"Current Balance", v.balance.CurrentBalance},
-		{"Budget Balance", v.balance.BudgetBalance},
-		{"Straight Balance", v.balance.StraightBalance},
-		{"Cash Balance", v.balance.CashBalance},
+		{"Credit Interest Rate", v.balance.CreditInterestRate},
+		{"Debit Interest Rate", v.balance.DebitInterestRate},
 	}
-
-	for _, r := range rows {
+	for _, r := range rates {
+		if r.value == 0 {
+			continue
+		}
 		label := labelStyle.Render(r.label + ":")
-		val := FormatAmount(r.value, cur)
-		b.WriteString(fmt.Sprintf("%s %s\n", label, valueStyle.Render(val)))
+		b.WriteString(fmt.Sprintf("%s %s\n", label, valueStyle.Render(FormatRate(r.value))))
 	}
 
 	return b.String()

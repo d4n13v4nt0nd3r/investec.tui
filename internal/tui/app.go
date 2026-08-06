@@ -2,21 +2,30 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"investec.openbanking.tui/internal/api"
+	"investec.openbanking.tui/internal/config"
 )
 
 // View states
 type viewState int
 
 const (
-	viewAccounts viewState = iota
+	viewCountry viewState = iota
+	viewAccounts
 	viewBalance
 	viewTransactions
 )
 
 // Messages for async operations
+type clientReadyMsg struct {
+	client  *api.Client
+	country config.Country
+	err     error
+}
+
 type accountsLoadedMsg struct {
 	accounts []api.Account
 	err      error
@@ -35,7 +44,9 @@ type transactionsLoadedMsg struct {
 // Model is the root Bubble Tea model.
 type Model struct {
 	client       *api.Client
+	country      config.Country
 	state        viewState
+	countryList  countryView
 	accounts     accountsView
 	balance      balanceView
 	transactions transactionsView
@@ -43,37 +54,57 @@ type Model struct {
 	height       int
 }
 
-// NewModel creates the initial app model.
-func NewModel(client *api.Client) Model {
+// NewModel creates the initial app model, starting on the country landing page.
+func NewModel(countries []config.Country) Model {
 	return Model{
-		client:   client,
-		state:    viewAccounts,
-		accounts: newAccountsView(),
+		state:       viewCountry,
+		countryList: newCountryView(countries),
 	}
 }
 
-// Init starts by loading accounts.
+// Init does nothing until a country has been chosen.
 func (m Model) Init() tea.Cmd {
-	return m.loadAccounts()
+	return nil
+}
+
+func connectCountry(country config.Country) tea.Cmd {
+	return func() tea.Msg {
+		if !country.HasCredentials() {
+			return clientReadyMsg{
+				country: country,
+				err: fmt.Errorf("missing credentials in .env: %s",
+					strings.Join(country.MissingCredentials(), ", ")),
+			}
+		}
+
+		client := api.NewClient(country.ClientID, country.ClientSecret, country.APIKey, country.Code)
+		if err := client.Authenticate(); err != nil {
+			return clientReadyMsg{country: country, err: err}
+		}
+		return clientReadyMsg{client: client, country: country}
+	}
 }
 
 func (m Model) loadAccounts() tea.Cmd {
+	client := m.client
 	return func() tea.Msg {
-		accounts, err := m.client.GetAccounts()
+		accounts, err := client.GetAccounts()
 		return accountsLoadedMsg{accounts: accounts, err: err}
 	}
 }
 
 func (m Model) loadBalance(accountID string) tea.Cmd {
+	client := m.client
 	return func() tea.Msg {
-		balance, err := m.client.GetBalance(accountID)
+		balance, err := client.GetBalance(accountID)
 		return balanceLoadedMsg{balance: balance, err: err}
 	}
 }
 
 func (m Model) loadTransactions(accountID, fromDate, toDate string) tea.Cmd {
+	client := m.client
 	return func() tea.Msg {
-		txns, err := m.client.GetTransactions(accountID, fromDate, toDate)
+		txns, err := client.GetTransactions(accountID, fromDate, toDate)
 		return transactionsLoadedMsg{transactions: txns, err: err}
 	}
 }
@@ -86,6 +117,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		return m, nil
+
+	case clientReadyMsg:
+		m.countryList.connecting = false
+		if msg.err != nil {
+			m.countryList.err = msg.err
+			return m, nil
+		}
+		m.countryList.err = nil
+		m.client = msg.client
+		m.country = msg.country
+		m.accounts = newAccountsView()
+		m.state = viewAccounts
+		return m, m.loadAccounts()
 
 	case accountsLoadedMsg:
 		m.accounts.accounts = msg.accounts
@@ -105,13 +149,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
-		// Global quit
-		if msg.String() == "ctrl+c" || msg.String() == "q" {
-			if m.state == viewAccounts && !m.transactions.editing {
-				return m, tea.Quit
-			}
-		}
-
 		return m.handleKey(msg)
 	}
 
@@ -123,11 +160,43 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch m.state {
 
+	// --- Country landing page ---
+	case viewCountry:
+		if m.countryList.connecting {
+			if key == "ctrl+c" {
+				return m, tea.Quit
+			}
+			return m, nil
+		}
+
+		switch key {
+		case "q", "ctrl+c", "esc":
+			return m, tea.Quit
+		case "up", "k":
+			if m.countryList.cursor > 0 {
+				m.countryList.cursor--
+			}
+		case "down", "j":
+			if m.countryList.cursor < len(m.countryList.countries)-1 {
+				m.countryList.cursor++
+			}
+		case "enter":
+			country, ok := m.countryList.selected()
+			if !ok {
+				return m, nil
+			}
+			m.countryList.err = nil
+			m.countryList.connecting = true
+			return m, connectCountry(country)
+		}
+
 	// --- Accounts list ---
 	case viewAccounts:
 		switch key {
 		case "q", "ctrl+c":
 			return m, tea.Quit
+		case "esc", "backspace":
+			m.state = viewCountry
 		case "up", "k":
 			if m.accounts.cursor > 0 {
 				m.accounts.cursor--
@@ -141,7 +210,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				acc := m.accounts.accounts[m.accounts.cursor]
 				m.balance = newBalanceView(acc)
 				m.state = viewBalance
-				return m, m.loadBalance(acc.AccountID)
+				return m, m.loadBalance(acc.AccountID.String())
 			}
 		case "r":
 			return m, m.loadAccounts()
@@ -154,15 +223,20 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.state = viewAccounts
 		case "t":
 			acc := m.balance.account
-			currency := ""
-			if m.balance.balance != nil {
+			currency := acc.AccountCurrency
+			if m.balance.balance != nil && m.balance.balance.Currency != "" {
 				currency = m.balance.balance.Currency
 			}
-			m.transactions = newTransactionsView(acc, currency)
+			fromDate, toDate := "", ""
+			if m.client.RequiresDateRange() {
+				fromDate, toDate = api.DefaultDateRange()
+			}
+			m.transactions = newTransactionsView(acc, currency, fromDate, toDate)
 			m.state = viewTransactions
-			return m, m.loadTransactions(acc.AccountID, "", "")
+			return m, m.loadTransactions(acc.AccountID.String(), fromDate, toDate)
 		case "r":
-			return m, m.loadBalance(m.balance.account.AccountID)
+			m.balance.loading = true
+			return m, m.loadBalance(m.balance.account.AccountID.String())
 		case "q", "ctrl+c":
 			m.state = viewAccounts
 		}
@@ -200,7 +274,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "r":
 			m.transactions.loading = true
 			acc := m.transactions.account
-			return m, m.loadTransactions(acc.AccountID, m.transactions.fromDate, m.transactions.toDate)
+			return m, m.loadTransactions(acc.AccountID.String(), m.transactions.fromDate, m.transactions.toDate)
 		case "q", "ctrl+c":
 			m.state = viewBalance
 		}
@@ -228,7 +302,7 @@ func (m Model) handleTransactionEditing(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.transactions.cursor = 0
 			m.transactions.offset = 0
 			acc := m.transactions.account
-			return m, m.loadTransactions(acc.AccountID, m.transactions.fromDate, m.transactions.toDate)
+			return m, m.loadTransactions(acc.AccountID.String(), m.transactions.fromDate, m.transactions.toDate)
 		}
 	case "esc":
 		m.transactions.editing = false
@@ -251,18 +325,23 @@ func (m Model) View() string {
 	var content string
 
 	switch m.state {
-	case viewAccounts:
+	case viewCountry:
 		title := titleStyle.Render("Investec Open Banking")
-		help := helpStyle.Render("↑/↓ navigate  •  enter select  •  r refresh  •  q quit")
+		help := helpStyle.Render("↑/↓ navigate  •  enter select  •  q quit")
+		content = fmt.Sprintf("%s\n%s\n%s", title, m.countryList.render(), help)
+
+	case viewAccounts:
+		title := titleStyle.Render(fmt.Sprintf("Investec Open Banking — %s", m.country.Name))
+		help := helpStyle.Render("↑/↓ navigate  •  enter select  •  r refresh  •  esc change country  •  q quit")
 		content = fmt.Sprintf("%s\n%s\n%s", title, m.accounts.renderTable(), help)
 
 	case viewBalance:
-		title := titleStyle.Render("Account Balance")
+		title := titleStyle.Render(fmt.Sprintf("Account Balance — %s", m.country.Name))
 		help := helpStyle.Render("t transactions  •  r refresh  •  esc back")
 		content = fmt.Sprintf("%s\n%s\n%s", title, m.balance.render(), help)
 
 	case viewTransactions:
-		title := titleStyle.Render(fmt.Sprintf("Transactions — %s", m.transactions.account.AccountName))
+		title := titleStyle.Render(fmt.Sprintf("Transactions — %s", m.transactions.account.DisplayName()))
 		help := helpStyle.Render("↑/↓ navigate  •  f filter dates  •  r refresh  •  esc back")
 		if m.transactions.editing {
 			help = helpStyle.Render("Type date (YYYY-MM-DD)  •  enter confirm  •  esc cancel")

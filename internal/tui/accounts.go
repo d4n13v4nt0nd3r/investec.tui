@@ -29,16 +29,16 @@ func (v accountsView) renderTable() string {
 	var b strings.Builder
 
 	// Header
-	header := fmt.Sprintf("  %-30s %-20s %-25s", "Account Name", "Account Number", "Product")
+	header := fmt.Sprintf("  %-40s %-20s %-35s", "Account Name", "Account Number", "Product")
 	b.WriteString(headerRowStyle.Render(header))
 	b.WriteString("\n")
 
 	// Rows
 	for i, acc := range v.accounts {
-		row := fmt.Sprintf("  %-30s %-20s %-25s",
-			truncate(acc.AccountName, 28),
+		row := fmt.Sprintf("  %-40s %-20s %-35s",
+			truncate(acc.DisplayName(), 38),
 			acc.AccountNumber,
-			truncate(acc.ProductName, 23),
+			truncate(acc.Product(), 33),
 		)
 
 		if i == v.cursor {

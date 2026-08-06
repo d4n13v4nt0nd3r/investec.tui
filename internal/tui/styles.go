@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -99,4 +100,25 @@ func FormatAmount(amount float64, currency string) string {
 		return fmt.Sprintf("%s%s %s.%s", sign, currency, string(result), decPart)
 	}
 	return fmt.Sprintf("%s%s.%s", sign, string(result), decPart)
+}
+
+// FormatRate formats an interest rate as a percentage with at least 2 and at
+// most 7 decimal places.
+func FormatRate(rate float64) string {
+	s := strconv.FormatFloat(rate, 'f', -1, 64)
+
+	intPart, decPart, hasDec := strings.Cut(s, ".")
+	if !hasDec {
+		decPart = ""
+	}
+	if len(decPart) > 7 {
+		s = strconv.FormatFloat(rate, 'f', 7, 64)
+		intPart, decPart, _ = strings.Cut(s, ".")
+		decPart = strings.TrimRight(decPart, "0")
+	}
+	for len(decPart) < 2 {
+		decPart += "0"
+	}
+
+	return fmt.Sprintf("%s.%s %%", intPart, decPart)
 }

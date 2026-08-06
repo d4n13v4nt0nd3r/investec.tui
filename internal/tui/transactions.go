@@ -23,10 +23,12 @@ type transactionsView struct {
 	editBuffer   string // current edit text
 }
 
-func newTransactionsView(account api.Account, currency string) transactionsView {
+func newTransactionsView(account api.Account, currency, fromDate, toDate string) transactionsView {
 	return transactionsView{
 		account:  account,
 		currency: currency,
+		fromDate: fromDate,
+		toDate:   toDate,
 		pageSize: 20,
 		loading:  true,
 	}
@@ -73,7 +75,7 @@ func (v transactionsView) render() string {
 	}
 
 	// Header
-	header := fmt.Sprintf("  %-12s %-7s %-30s %15s %15s",
+	header := fmt.Sprintf("  %-12s %-7s %-52s %15s %15s",
 		"Date", "Type", "Description", "Amount", "Balance")
 	b.WriteString(headerRowStyle.Render(header))
 	b.WriteString("\n")
@@ -86,41 +88,21 @@ func (v transactionsView) render() string {
 
 	visible := v.transactions[v.offset:end]
 	for i, tx := range visible {
-		date := tx.TransactionDate
-		if date == "" {
-			date = tx.PostingDate
-		}
-		if len(date) > 10 {
-			date = date[:10]
-		}
-
-		amtStr := FormatAmount(tx.Amount, "")
+		amtStr := FormatAmount(tx.SignedAmount(), "")
 		balStr := FormatAmount(tx.RunningBalance, "")
 
-		row := fmt.Sprintf("  %-12s %-7s %-30s %15s %15s",
-			date,
-			tx.Type,
-			truncate(tx.Description, 28),
+		row := fmt.Sprintf("  %-12s %-7s %-52s %15s %15s",
+			tx.Date(),
+			tx.Kind(),
+			truncate(tx.Detail(), 50),
 			amtStr,
 			balStr,
 		)
 
 		globalIdx := v.offset + i
 		if globalIdx == v.cursor {
-			// Colour by type
-			style := selectedRowStyle
-			b.WriteString(style.Render("> " + row[2:]))
+			b.WriteString(selectedRowStyle.Render("> " + row[2:]))
 		} else {
-			// Colour amount by type
-			if tx.Type == "CREDIT" {
-				row = fmt.Sprintf("  %-12s %-7s %-30s %15s %15s",
-					date,
-					tx.Type,
-					truncate(tx.Description, 28),
-					amtStr,
-					balStr,
-				)
-			}
 			b.WriteString(normalRowStyle.Render(row))
 		}
 		b.WriteString("\n")
