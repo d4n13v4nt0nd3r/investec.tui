@@ -47,35 +47,43 @@ You need two things installed on your computer: **Git** (to download the app) an
 
 ## Step 3: Create Your Credentials File
 
-You need to create a small text file called `.env` that contains your API keys from Step 1.
+You need to create a small text file called `.env` that contains the list of countries you bank in, plus the API keys for each of them (from Step 1).
+
+Credentials are per country, prefixed with the country code:
+
+```
+COUNTRY_LIST={South Africa:ZA;Mauritius:MU}
+
+ZA_CLIENT_ID=paste_your_za_client_id_here
+ZA_CLIENT_SECRET=paste_your_za_client_secret_here
+ZA_API_KEY=paste_your_za_api_key_here
+
+MU_CLIENT_ID=paste_your_mu_client_id_here
+MU_CLIENT_SECRET=paste_your_mu_client_secret_here
+MU_API_KEY=paste_your_mu_api_key_here
+```
+
+- `COUNTRY_LIST` is a `{Name:CODE;Name:CODE}` list. Only the countries listed here appear on the landing page.
+- If you only bank in one country, list just that one.
+- Legacy `INVESTEC_CLIENT_ID` / `INVESTEC_CLIENT_SECRET` / `INVESTEC_API_KEY` are still honoured as a fallback for any country that has no `<CODE>_*` values of its own.
 
 ### macOS
 
 1. Open **TextEdit**
-2. Go to **Format → Make Plain Text** (this is important — it must be plain text, not rich text)
-3. Type the following three lines, replacing the placeholder values with your actual keys from Step 1:
-   ```
-   INVESTEC_CLIENT_ID=paste_your_client_id_here
-   INVESTEC_CLIENT_SECRET=paste_your_client_secret_here
-   INVESTEC_API_KEY=paste_your_api_key_here
-   ```
-4. Save the file as `.env` (the dot at the start is important) — save it somewhere you can find it, like your Desktop
+2. Go to **Format -> Make Plain Text** (this is important -- it must be plain text, not rich text)
+3. Type the lines above, replacing the placeholder values with your actual keys from Step 1
+4. Save the file as `.env` (the dot at the start is important) -- save it somewhere you can find it, like your Desktop
 5. If macOS warns you about the dot in the filename, click **Use "."**
 
 ### Windows
 
 1. Open **Notepad**
-2. Type the following three lines, replacing the placeholder values with your actual keys from Step 1:
-   ```
-   INVESTEC_CLIENT_ID=paste_your_client_id_here
-   INVESTEC_CLIENT_SECRET=paste_your_client_secret_here
-   INVESTEC_API_KEY=paste_your_api_key_here
-   ```
-3. Go to **File → Save As**
+2. Type the lines above, replacing the placeholder values with your actual keys from Step 1
+3. Go to **File -> Save As**
 4. In the "Save as type" dropdown, select **All Files (*.*)**
 5. Name the file `.env` (with the dot) and save it somewhere you can find it, like your Desktop
 
-> **Note:** Make sure there are no spaces around the `=` signs, and no blank lines.
+> **Note:** Make sure there are no spaces around the `=` signs.
 
 ## Step 4: Download and Run the App
 
@@ -144,13 +152,22 @@ cd tui.investec-openbanking.go
 
 ## Navigation
 
-### Accounts List (default)
+### Country Selection (landing page)
+
+| Key       | Action              |
+|-----------|---------------------|
+| ↑/↓ or k/j | Navigate countries |
+| Enter     | Connect and load accounts |
+| q         | Quit                |
+
+### Accounts List
 
 | Key       | Action              |
 |-----------|---------------------|
 | ↑/↓ or k/j | Navigate accounts |
 | Enter     | View balance        |
 | r         | Refresh             |
+| Esc       | Back to country selection |
 | q         | Quit                |
 
 ### Balance View
@@ -174,14 +191,23 @@ When filtering dates, type in `YYYY-MM-DD` format. Press Enter to confirm each f
 
 ## API Endpoints Used
 
+The country code selected on the landing page becomes the first path segment (`za`, `mu`, ...).
+
 | Endpoint | Description |
 |----------|-------------|
 | `POST /identity/v2/oauth2/token` | OAuth2 client_credentials auth |
-| `GET /za/pb/v1/accounts` | List accounts |
-| `GET /za/pb/v1/accounts/{id}/balance` | Account balance |
-| `GET /za/pb/v1/accounts/{id}/transactions` | Transaction history |
+| `GET /{country}/pb/v1/accounts` | List accounts |
+| `GET /{country}/pb/v1/accounts/{id}/balance` | Account balance |
+| `GET /{country}/pb/v1/accounts/{id}/transactions` | Transaction history |
 
 Base URL: `https://openapi.investec.com`
+
+Response shapes differ per country and are normalised in `internal/api/models.go`:
+
+- ZA: `data.accounts[]`, `data` (balance), `data.transactions[]`, string IDs, `type` of CREDIT/DEBIT
+- MU: `data.accounts.accounts[]`, `data.accounts.balance`, `data.accounts.transactions[]`, numeric IDs, separate `creditAmount`/`debitAmount`
+
+MU requires an explicit `fromDate`/`toDate` on transactions, so the app defaults to the last 90 days.
 
 ## Project Structure
 
@@ -189,10 +215,13 @@ Base URL: `https://openapi.investec.com`
 ├── main.go                  # Entrypoint
 ├── internal/
 │   ├── api/
-│   │   ├── client.go        # HTTP client, auth, API methods
-│   │   └── models.go        # Response structs
+│   │   ├── client.go        # HTTP client, auth, country-scoped API methods
+│   │   └── models.go        # Response structs and per-country parsing
+│   ├── config/
+│   │   └── config.go        # COUNTRY_LIST and per-country credentials
 │   └── tui/
 │       ├── app.go           # Bubble Tea model, routing
+│       ├── country.go       # Country selection landing page
 │       ├── accounts.go      # Accounts list view
 │       ├── balance.go       # Balance detail view
 │       ├── transactions.go  # Transactions table view
