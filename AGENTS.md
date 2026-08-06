@@ -33,7 +33,7 @@ The app uses a single root `Model` in `app.go` that routes between four views: c
 
 ## Configuration
 
-`.env` holds the country list and per-country credentials:
+`env.example` is the committed template; `.env` (gitignored) holds the country list and per-country credentials:
 
 ```
 COUNTRY_LIST={South Africa:ZA;Mauritius:MU}
