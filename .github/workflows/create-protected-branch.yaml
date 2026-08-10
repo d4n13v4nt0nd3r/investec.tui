@@ -1,0 +1,38 @@
+on:
+  workflow_dispatch:
+    inputs:
+      branch-suffix:
+        description: 'The suffix to be used for the protected branch name.'
+        required: true
+        type: string
+      branch-type:
+        default: release
+        description: 'The type of protected branch to create.'
+        options:
+          - hotfix
+          - release
+        required: true
+        type: choice
+      ref-sha:
+        description: '(Optional) The sha of the commit to base the protected branch on.'
+        type: string
+      ref-tag:
+        description: '(Optional) The tag of the commit to base the protected branch on.'
+        type: string
+
+name: Create Protected Branch
+run-name: Create ${{ inputs.branch-type }} branch with suffix ${{ inputs.branch-suffix }}
+
+jobs:
+  create-protected-branch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create protected branch
+        uses: BeamMoney/packaged-actions/.github/actions/create-protected-branch@main
+        with:
+          branch-suffix: ${{ inputs.branch-suffix }}
+          branch-type: ${{ inputs.branch-type }}
+          github-app-id: ${{ secrets.GH_ACTIONS_CONTRIBUTOR_ID }}
+          github-app-key: ${{ secrets.GH_ACTIONS_CONTRIBUTOR_PRIVATE_KEY }}
+          ref-sha: ${{ inputs.ref-sha }}
+          ref-tag: ${{ inputs.ref-tag }}
