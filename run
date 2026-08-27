@@ -3,4 +3,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 go build -o investec.openbanking.tui .
-./investec.openbanking.tui
+
+# Developers get errors straight back in the shell; the "press Enter" pause is
+# only there for users who double-click the packaged app.
+INVESTEC_TUI_NO_PAUSE=1 ./investec.openbanking.tui
