@@ -8,16 +8,18 @@ import (
 )
 
 type balanceView struct {
-	account api.Account
-	balance *api.Balance
-	err     error
-	loading bool
+	account     api.Account
+	balance     *api.Balance
+	err         error
+	loading     bool
+	countryCode string // ISO country code, e.g. "ZA"
 }
 
-func newBalanceView(account api.Account) balanceView {
+func newBalanceView(account api.Account, countryCode string) balanceView {
 	return balanceView{
-		account: account,
-		loading: true,
+		account:     account,
+		loading:     true,
+		countryCode: countryCode,
 	}
 }
 
@@ -34,6 +36,11 @@ func (v balanceView) render() string {
 
 	b.WriteString(subtitleStyle.Render(fmt.Sprintf("%s  (%s)", v.account.DisplayName(), v.account.AccountNumber)))
 	b.WriteString("\n")
+
+	if v.countryCode == "ZA" {
+		b.WriteString(normalRowStyle.Render(fmt.Sprintf("AccountID: %s", v.account.AccountID.String())))
+		b.WriteString("\n")
+	}
 
 	product := v.account.Product()
 	if product == "" {

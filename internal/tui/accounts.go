@@ -13,10 +13,11 @@ type accountsView struct {
 	err         error
 	searching   bool   // true when the account number search box is active
 	searchQuery string // digits typed to filter by account number
+	countryCode string // ISO country code, used to select the column layout
 }
 
-func newAccountsView() accountsView {
-	return accountsView{}
+func newAccountsView(countryCode string) accountsView {
+	return accountsView{countryCode: countryCode}
 }
 
 // visibleAccounts returns the accounts matching the current search query.
@@ -82,6 +83,32 @@ func (v accountsView) renderTable() string {
 
 	if len(accounts) == 0 {
 		return b.String() + loadingStyle.Render("No matching accounts.")
+	}
+
+	if v.countryCode == "ZA" {
+		// Header
+		header := fmt.Sprintf("  %-30s %-18s %-40s %-12s", "Account Name", "Acc No", "Entity", "Type")
+		b.WriteString(headerRowStyle.Render(header))
+		b.WriteString("\n")
+
+		// Rows
+		for i, acc := range accounts {
+			row := fmt.Sprintf("  %-30s %-18s %-40s %-12s",
+				truncate(acc.ReferenceName, 28),
+				acc.AccountNumber,
+				truncate(acc.DisplayName(), 38),
+				acc.MappedProductType(),
+			)
+
+			if i == v.cursor {
+				b.WriteString(selectedRowStyle.Render("> " + row[2:]))
+			} else {
+				b.WriteString(normalRowStyle.Render(row))
+			}
+			b.WriteString("\n")
+		}
+
+		return b.String()
 	}
 
 	// Header
