@@ -35,17 +35,24 @@ func (v accountsView) visibleAccounts() []api.Account {
 	return filtered
 }
 
+// accountKey uniquely identifies an account by display name and account
+// number, avoiding the delimiter-collision risk of a concatenated string key.
+type accountKey struct {
+	name   string
+	number string
+}
+
 // dedupeAccounts removes accounts that share the same display name and
 // account number, keeping the first occurrence of each.
 func dedupeAccounts(accounts []api.Account) []api.Account {
-	seen := make(map[string]bool, len(accounts))
+	seen := make(map[accountKey]struct{}, len(accounts))
 	unique := make([]api.Account, 0, len(accounts))
 	for _, acc := range accounts {
-		key := acc.DisplayName() + "|" + acc.AccountNumber
-		if seen[key] {
+		key := accountKey{name: acc.DisplayName(), number: acc.AccountNumber}
+		if _, ok := seen[key]; ok {
 			continue
 		}
-		seen[key] = true
+		seen[key] = struct{}{}
 		unique = append(unique, acc)
 	}
 	return unique

@@ -113,8 +113,8 @@ func (v transactionsView) render() string {
 
 	visible := v.transactions[v.offset:end]
 	for i, tx := range visible {
-		amtStr := FormatAmount(tx.SignedAmount(), "")
-		lastCol := FormatAmount(tx.RunningBalance, "")
+		amtStr := FormatAmount(tx.SignedAmount(), v.currency)
+		lastCol := FormatAmount(tx.RunningBalance, v.currency)
 		if v.pending {
 			lastCol = tx.Status
 		}
