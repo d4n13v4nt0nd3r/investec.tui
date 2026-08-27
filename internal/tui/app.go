@@ -109,6 +109,14 @@ func (m Model) loadTransactions(accountID, fromDate, toDate string) tea.Cmd {
 	}
 }
 
+func (m Model) loadPendingTransactions(accountID string) tea.Cmd {
+	client := m.client
+	return func() tea.Msg {
+		txns, err := client.GetPendingTransactions(accountID)
+		return transactionsLoadedMsg{transactions: txns, err: err}
+	}
+}
+
 // Update handles messages and key events.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -132,8 +140,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.loadAccounts()
 
 	case accountsLoadedMsg:
-		m.accounts.accounts = msg.accounts
+		m.accounts.accounts = dedupeAccounts(msg.accounts)
 		m.accounts.err = msg.err
+		m.accounts.cursor = 0
 		return m, nil
 
 	case balanceLoadedMsg:
@@ -192,28 +201,47 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// --- Accounts list ---
 	case viewAccounts:
+		if m.accounts.searching {
+			return m.handleAccountSearch(msg)
+		}
+
 		switch key {
 		case "q", "ctrl+c":
 			return m, tea.Quit
 		case "esc", "backspace":
+			if m.accounts.searchQuery != "" {
+				m.accounts.searchQuery = ""
+				m.accounts.cursor = 0
+				return m, nil
+			}
 			m.state = viewCountry
 		case "up", "k":
 			if m.accounts.cursor > 0 {
 				m.accounts.cursor--
 			}
 		case "down", "j":
-			if m.accounts.cursor < len(m.accounts.accounts)-1 {
+			if m.accounts.cursor < len(m.accounts.visibleAccounts())-1 {
 				m.accounts.cursor++
 			}
 		case "enter":
-			if len(m.accounts.accounts) > 0 {
-				acc := m.accounts.accounts[m.accounts.cursor]
+			accs := m.accounts.visibleAccounts()
+			if len(accs) > 0 {
+				acc := accs[m.accounts.cursor]
 				m.balance = newBalanceView(acc)
 				m.state = viewBalance
 				return m, m.loadBalance(acc.AccountID.String())
 			}
 		case "r":
 			return m, m.loadAccounts()
+		case "s":
+			m.accounts.searching = true
+		default:
+			// Typing a digit jumps straight into account number search.
+			if len(key) == 1 && key[0] >= '0' && key[0] <= '9' {
+				m.accounts.searching = true
+				m.accounts.searchQuery += key
+				m.accounts.cursor = 0
+			}
 		}
 
 	// --- Balance view ---
@@ -234,6 +262,15 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.transactions = newTransactionsView(acc, currency, fromDate, toDate)
 			m.state = viewTransactions
 			return m, m.loadTransactions(acc.AccountID.String(), fromDate, toDate)
+		case "p":
+			acc := m.balance.account
+			currency := acc.AccountCurrency
+			if m.balance.balance != nil && m.balance.balance.Currency != "" {
+				currency = m.balance.balance.Currency
+			}
+			m.transactions = newPendingTransactionsView(acc, currency)
+			m.state = viewTransactions
+			return m, m.loadPendingTransactions(acc.AccountID.String())
 		case "r":
 			m.balance.loading = true
 			return m, m.loadBalance(m.balance.account.AccountID.String())
@@ -267,6 +304,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 			}
 		case "f":
+			if m.transactions.pending {
+				break
+			}
 			// Start editing from-date
 			m.transactions.editing = true
 			m.transactions.editField = 0
@@ -274,9 +314,57 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "r":
 			m.transactions.loading = true
 			acc := m.transactions.account
+			if m.transactions.pending {
+				return m, m.loadPendingTransactions(acc.AccountID.String())
+			}
 			return m, m.loadTransactions(acc.AccountID.String(), m.transactions.fromDate, m.transactions.toDate)
 		case "q", "ctrl+c":
 			m.state = viewBalance
+		}
+	}
+
+	return m, nil
+}
+
+func (m Model) handleAccountSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+
+	switch key {
+	case "ctrl+c":
+		return m, tea.Quit
+	case "esc":
+		m.accounts.searching = false
+		m.accounts.searchQuery = ""
+		m.accounts.cursor = 0
+	case "enter":
+		m.accounts.searching = false
+		accs := m.accounts.visibleAccounts()
+		if len(accs) > 0 {
+			acc := accs[m.accounts.cursor]
+			m.balance = newBalanceView(acc)
+			m.state = viewBalance
+			return m, m.loadBalance(acc.AccountID.String())
+		}
+	case "backspace":
+		if len(m.accounts.searchQuery) > 0 {
+			m.accounts.searchQuery = m.accounts.searchQuery[:len(m.accounts.searchQuery)-1]
+			m.accounts.cursor = 0
+		} else {
+			m.accounts.searching = false
+		}
+	case "up":
+		if m.accounts.cursor > 0 {
+			m.accounts.cursor--
+		}
+	case "down":
+		if m.accounts.cursor < len(m.accounts.visibleAccounts())-1 {
+			m.accounts.cursor++
+		}
+	default:
+		// Account numbers are numeric, so only accept digits.
+		if len(key) == 1 && key[0] >= '0' && key[0] <= '9' {
+			m.accounts.searchQuery += key
+			m.accounts.cursor = 0
 		}
 	}
 
@@ -332,20 +420,28 @@ func (m Model) View() string {
 
 	case viewAccounts:
 		title := titleStyle.Render(fmt.Sprintf("Investec Open Banking — %s", m.country.Name))
-		help := helpStyle.Render("↑/↓ navigate  •  enter select  •  r refresh  •  esc change country  •  q quit")
+		help := helpStyle.Render("↑/↓ navigate  •  enter select  •  s search  •  r refresh  •  esc change country  •  q quit")
+		if m.accounts.searching {
+			help = helpStyle.Render("Type digits to filter account number  •  ↑/↓ navigate  •  enter select  •  esc cancel")
+		}
 		content = fmt.Sprintf("%s\n%s\n%s", title, m.accounts.renderTable(), help)
 
 	case viewBalance:
 		title := titleStyle.Render(fmt.Sprintf("Account Balance — %s", m.country.Name))
-		help := helpStyle.Render("t transactions  •  r refresh  •  esc back")
+		help := helpStyle.Render("t transactions  •  p pending  •  r refresh  •  esc back")
 		content = fmt.Sprintf("%s\n%s\n%s", title, m.balance.render(), help)
 
 	case viewTransactions:
-		title := titleStyle.Render(fmt.Sprintf("Transactions — %s", m.transactions.account.DisplayName()))
+		titleText := fmt.Sprintf("Transactions — %s", m.transactions.account.DisplayName())
 		help := helpStyle.Render("↑/↓ navigate  •  f filter dates  •  r refresh  •  esc back")
+		if m.transactions.pending {
+			titleText = fmt.Sprintf("Pending Transactions — %s", m.transactions.account.DisplayName())
+			help = helpStyle.Render("↑/↓ navigate  •  r refresh  •  esc back")
+		}
 		if m.transactions.editing {
 			help = helpStyle.Render("Type date (YYYY-MM-DD)  •  enter confirm  •  esc cancel")
 		}
+		title := titleStyle.Render(titleText)
 		content = fmt.Sprintf("%s\n%s\n%s", title, m.transactions.render(), help)
 	}
 
