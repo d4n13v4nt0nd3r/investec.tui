@@ -97,7 +97,7 @@ func (v accountsView) renderTable() string {
 				truncate(acc.ReferenceName, 28),
 				acc.AccountNumber,
 				truncate(acc.DisplayName(), 38),
-				acc.MappedProductType(),
+				truncate(acc.MappedProductType(), 10),
 			)
 
 			if i == v.cursor {

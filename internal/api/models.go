@@ -83,6 +83,7 @@ func (a Account) Product() string {
 // the account list.
 var mappedProductTypes = map[string]string{
 	"Investec Private Business Account": "CHQ",
+	"Private Bank Account":              "CHQ",
 	"Daily Call Deposit":                "CALL",
 	"Cash Management Account":           "CASHMNGMT",
 	"MoneyFund Tracker":                 "MMRKT",
