@@ -13,6 +13,22 @@ import (
 // .app bundle.
 const bundleMarker = ".app/Contents/MacOS/"
 
+// bundlePath returns this binary's path when it lives inside a .app bundle,
+// and an empty string otherwise.
+func bundlePath() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = resolved
+	}
+	if !strings.Contains(exe, bundleMarker) {
+		return ""
+	}
+	return exe
+}
+
 // RelaunchInTerminal hands the app over to Terminal and reports whether it
 // did so, in which case the caller should exit immediately.
 //
@@ -25,14 +41,8 @@ func RelaunchInTerminal() bool {
 		return false
 	}
 
-	exe, err := os.Executable()
-	if err != nil {
-		return false
-	}
-	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
-		exe = resolved
-	}
-	if !strings.Contains(exe, bundleMarker) {
+	exe := bundlePath()
+	if exe == "" {
 		return false
 	}
 

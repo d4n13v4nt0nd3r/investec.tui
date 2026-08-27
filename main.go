@@ -15,6 +15,13 @@ import (
 // version is replaced at build time with -ldflags "-X main.version=<tag>".
 var version = "dev"
 
+// Window size the packaged app asks Terminal for. The transactions table is
+// the widest view, so the width is set to fit it without wrapping.
+const (
+	windowCols = 120
+	windowRows = 35
+)
+
 // envTemplate is shown to a first-time user who has no credentials file yet.
 //
 //go:embed env.example
@@ -31,6 +38,8 @@ func main() {
 	if startup.RelaunchInTerminal() {
 		return
 	}
+
+	startup.SizeWindow(windowCols, windowRows)
 
 	envFile, searched := config.ResolveEnvFile()
 	if envFile == "" {

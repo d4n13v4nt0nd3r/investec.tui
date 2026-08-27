@@ -62,9 +62,12 @@ func NewModel(countries []config.Country) Model {
 	}
 }
 
-// Init does nothing until a country has been chosen.
+// windowTitle labels the terminal window the app runs in.
+const windowTitle = "Investec Open Banking"
+
+// Init names the window; nothing else happens until a country is chosen.
 func (m Model) Init() tea.Cmd {
-	return nil
+	return tea.SetWindowTitle(windowTitle)
 }
 
 func connectCountry(country config.Country) tea.Cmd {
