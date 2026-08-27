@@ -9,6 +9,10 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// appHPadding is the outer frame's horizontal padding. View needs it to work
+// out how much width is left for content.
+const appHPadding = 2
+
 var (
 	// Colours
 	primaryColor = lipgloss.Color("#0066B2") // Investec-ish blue
@@ -18,18 +22,26 @@ var (
 	headerColor  = lipgloss.Color("#FFFFFF")
 	selectedBg   = lipgloss.Color("#1A3A5C")
 
-	// textColor is the colour of ordinary body text.
+	// textColor and bgColor are the app's own palette.
 	//
-	// It must be set explicitly. Leaving a style with no foreground makes the
-	// text fall through to the terminal profile's default, and the packaged
-	// app opens in whichever Terminal profile the user happens to have -- a
-	// profile like Homebrew defaults to green, which is where the green rows
-	// came from. Adaptive so a light profile gets dark text rather than white
-	// on white.
-	textColor = lipgloss.AdaptiveColor{Light: "#1A1A1A", Dark: "#FFFFFF"}
+	// Both have to be set on every style. A style with no colour falls
+	// through to the terminal profile's default, and the packaged app opens
+	// in whichever profile the user happens to have -- one like Homebrew
+	// defaults to green, which is where the green rows came from.
+	//
+	// They are fixed rather than adaptive because the app paints its own
+	// background. Terminal.app answers an OSC 11 query but ignores an OSC 11
+	// set, so the real window background cannot be changed; the only option
+	// is to fill the cells we draw. Once we are choosing the background, the
+	// foreground has to suit it rather than the user's profile.
+	textColor = lipgloss.Color("#FFFFFF")
+	bgColor   = lipgloss.Color("#0D1117")
 
 	// Layout
-	appStyle = lipgloss.NewStyle().Padding(1, 2)
+	appStyle = lipgloss.NewStyle().
+			Padding(1, appHPadding).
+			Foreground(textColor).
+			Background(bgColor)
 
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
@@ -40,6 +52,7 @@ var (
 
 	subtitleStyle = lipgloss.NewStyle().
 			Foreground(primaryColor).
+			Background(bgColor).
 			Bold(true).
 			MarginBottom(1)
 
@@ -47,37 +60,45 @@ var (
 	headerRowStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(primaryColor).
+			Background(bgColor).
 			BorderBottom(true).
 			BorderStyle(lipgloss.NormalBorder()).
-			BorderForeground(mutedColor)
+			BorderForeground(mutedColor).
+			BorderBackground(bgColor)
 
 	selectedRowStyle = lipgloss.NewStyle().
 				Background(selectedBg).
 				Foreground(headerColor)
 
 	normalRowStyle = lipgloss.NewStyle().
-			Foreground(textColor)
+			Foreground(textColor).
+			Background(bgColor)
 
 	// Balance card
 	labelStyle = lipgloss.NewStyle().
 			Foreground(mutedColor).
+			Background(bgColor).
 			Width(22)
 
 	valueStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(textColor)
+			Foreground(textColor).
+			Background(bgColor)
 
 	// Status bar
 	helpStyle = lipgloss.NewStyle().
 			Foreground(mutedColor).
+			Background(bgColor).
 			MarginTop(1)
 
 	errorStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FF0000")).
+			Foreground(lipgloss.Color("#FF5555")).
+			Background(bgColor).
 			Bold(true)
 
 	loadingStyle = lipgloss.NewStyle().
 			Foreground(mutedColor).
+			Background(bgColor).
 			Italic(true)
 )
 
