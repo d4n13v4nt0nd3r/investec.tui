@@ -63,6 +63,28 @@ func TestParseAccounts(t *testing.T) {
 	}
 }
 
+func TestMappedProductType(t *testing.T) {
+	cases := []struct {
+		productName string
+		want        string
+	}{
+		{"Investec Private Business Account", "CHQ"},
+		{"Private Bank Account", "CHQ"},
+		{"Daily Call Deposit", "CALL"},
+		{"Cash Management Account", "CASHMNGMT"},
+		{"MoneyFund Tracker", "MMRKT"},
+		{"Some Unmapped Product", "Some Unmapped Product"},
+		{"", ""},
+	}
+
+	for _, c := range cases {
+		acc := Account{ProductName: c.productName}
+		if got := acc.MappedProductType(); got != c.want {
+			t.Errorf("MappedProductType(%q): got %q, want %q", c.productName, got, c.want)
+		}
+	}
+}
+
 const zaBalanceBody = `{
   "data": {
     "accountId": "172878438321",

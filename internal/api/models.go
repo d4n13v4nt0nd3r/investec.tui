@@ -79,6 +79,25 @@ func (a Account) Product() string {
 	return a.ProfileName
 }
 
+// mappedProductTypes maps ZA product names to the short type codes shown on
+// the account list.
+var mappedProductTypes = map[string]string{
+	"Investec Private Business Account": "CHQ",
+	"Private Bank Account":              "CHQ",
+	"Daily Call Deposit":                "CALL",
+	"Cash Management Account":           "CASHMNGMT",
+	"MoneyFund Tracker":                 "MMRKT",
+}
+
+// MappedProductType returns the short type code for the account's product
+// name, falling back to the raw product name when there is no mapping.
+func (a Account) MappedProductType() string {
+	if code, ok := mappedProductTypes[a.ProductName]; ok {
+		return code
+	}
+	return a.ProductName
+}
+
 // parseAccounts handles both the ZA shape (data.accounts[]) and the MU shape
 // (data.accounts.accounts[]).
 func parseAccounts(body []byte) ([]Account, error) {

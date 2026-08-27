@@ -135,7 +135,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.countryList.err = nil
 		m.client = msg.client
 		m.country = msg.country
-		m.accounts = newAccountsView()
+		m.accounts = newAccountsView(msg.country.Code)
 		m.state = viewAccounts
 		return m, m.loadAccounts()
 
@@ -227,7 +227,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			accs := m.accounts.visibleAccounts()
 			if len(accs) > 0 {
 				acc := accs[m.accounts.cursor]
-				m.balance = newBalanceView(acc)
+				m.balance = newBalanceView(acc, m.country.Code)
 				m.state = viewBalance
 				return m, m.loadBalance(acc.AccountID.String())
 			}
@@ -341,7 +341,7 @@ func (m Model) handleAccountSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		accs := m.accounts.visibleAccounts()
 		if len(accs) > 0 {
 			acc := accs[m.accounts.cursor]
-			m.balance = newBalanceView(acc)
+			m.balance = newBalanceView(acc, m.country.Code)
 			m.state = viewBalance
 			return m, m.loadBalance(acc.AccountID.String())
 		}
