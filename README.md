@@ -130,6 +130,29 @@ cd tui.investec-openbanking.go
 ./investec.openbanking.tui.exe
 ```
 
+## Updating the App
+Already downloaded the app before? Get the latest changes like this:
+### macOS
+```bash
+cd tui.investec-openbanking.go
+git pull
+./run
+```
+`./run` always rebuilds the app before running it, so pulling the latest code is all you need.
+### Windows (Git Bash)
+```bash
+cd tui.investec-openbanking.go
+git pull
+go build -o investec.openbanking.tui.exe .
+./investec.openbanking.tui.exe
+```
+Notes:
+- Your `.env` file is never touched by `git pull` — it's gitignored, so your credentials are safe.
+- If a new setting was added, compare the template to your file and add any missing lines:
+  ```bash
+  diff env.example .env
+  ```
+- If `git pull` reports a conflict or says you have local changes, run `git status` to see what changed before doing anything else — you likely edited a tracked file by accident.
 ## Troubleshooting
 
 | Problem | Solution |
