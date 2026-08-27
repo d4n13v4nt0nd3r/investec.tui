@@ -11,12 +11,22 @@ import (
 
 var (
 	// Colours
-	primaryColor   = lipgloss.Color("#0066B2") // Investec-ish blue
-	accentColor    = lipgloss.Color("#00A86B") // green for credits
-	debitColor     = lipgloss.Color("#E05555") // red for debits
-	mutedColor     = lipgloss.Color("#888888")
-	headerColor    = lipgloss.Color("#FFFFFF")
-	selectedBg     = lipgloss.Color("#1A3A5C")
+	primaryColor = lipgloss.Color("#0066B2") // Investec-ish blue
+	accentColor  = lipgloss.Color("#00A86B") // green for credits
+	debitColor   = lipgloss.Color("#E05555") // red for debits
+	mutedColor   = lipgloss.Color("#888888")
+	headerColor  = lipgloss.Color("#FFFFFF")
+	selectedBg   = lipgloss.Color("#1A3A5C")
+
+	// textColor is the colour of ordinary body text.
+	//
+	// It must be set explicitly. Leaving a style with no foreground makes the
+	// text fall through to the terminal profile's default, and the packaged
+	// app opens in whichever Terminal profile the user happens to have -- a
+	// profile like Homebrew defaults to green, which is where the green rows
+	// came from. Adaptive so a light profile gets dark text rather than white
+	// on white.
+	textColor = lipgloss.AdaptiveColor{Light: "#1A1A1A", Dark: "#FFFFFF"}
 
 	// Layout
 	appStyle = lipgloss.NewStyle().Padding(1, 2)
@@ -45,7 +55,8 @@ var (
 				Background(selectedBg).
 				Foreground(headerColor)
 
-	normalRowStyle = lipgloss.NewStyle()
+	normalRowStyle = lipgloss.NewStyle().
+			Foreground(textColor)
 
 	// Balance card
 	labelStyle = lipgloss.NewStyle().
@@ -53,7 +64,8 @@ var (
 			Width(22)
 
 	valueStyle = lipgloss.NewStyle().
-			Bold(true)
+			Bold(true).
+			Foreground(textColor)
 
 	// Status bar
 	helpStyle = lipgloss.NewStyle().
