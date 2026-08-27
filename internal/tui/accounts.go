@@ -8,13 +8,47 @@ import (
 )
 
 type accountsView struct {
-	accounts []api.Account
-	cursor   int
-	err      error
+	accounts    []api.Account
+	cursor      int
+	err         error
+	searching   bool   // true when the account number search box is active
+	searchQuery string // digits typed to filter by account number
 }
 
 func newAccountsView() accountsView {
 	return accountsView{}
+}
+
+// visibleAccounts returns the accounts matching the current search query.
+// The query matches any substring of the account number, so the last few
+// digits are enough to find an account.
+func (v accountsView) visibleAccounts() []api.Account {
+	if v.searchQuery == "" {
+		return v.accounts
+	}
+	filtered := make([]api.Account, 0, len(v.accounts))
+	for _, acc := range v.accounts {
+		if strings.Contains(acc.AccountNumber, v.searchQuery) {
+			filtered = append(filtered, acc)
+		}
+	}
+	return filtered
+}
+
+// dedupeAccounts removes accounts that share the same display name and
+// account number, keeping the first occurrence of each.
+func dedupeAccounts(accounts []api.Account) []api.Account {
+	seen := make(map[string]bool, len(accounts))
+	unique := make([]api.Account, 0, len(accounts))
+	for _, acc := range accounts {
+		key := acc.DisplayName() + "|" + acc.AccountNumber
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		unique = append(unique, acc)
+	}
+	return unique
 }
 
 func (v accountsView) renderTable() string {
@@ -28,13 +62,28 @@ func (v accountsView) renderTable() string {
 
 	var b strings.Builder
 
+	if v.searching || v.searchQuery != "" {
+		query := v.searchQuery
+		if v.searching {
+			query += "▎"
+		}
+		b.WriteString(normalRowStyle.Render(fmt.Sprintf("Search (Account Number): %s", query)))
+		b.WriteString("\n\n")
+	}
+
+	accounts := v.visibleAccounts()
+
+	if len(accounts) == 0 {
+		return b.String() + loadingStyle.Render("No matching accounts.")
+	}
+
 	// Header
 	header := fmt.Sprintf("  %-40s %-20s %-35s", "Account Name", "Account Number", "Product")
 	b.WriteString(headerRowStyle.Render(header))
 	b.WriteString("\n")
 
 	// Rows
-	for i, acc := range v.accounts {
+	for i, acc := range accounts {
 		row := fmt.Sprintf("  %-40s %-20s %-35s",
 			truncate(acc.DisplayName(), 38),
 			acc.AccountNumber,

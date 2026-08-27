@@ -162,6 +162,15 @@ func (c *Client) GetBalance(accountID string) (*Balance, error) {
 	return parseBalance(body)
 }
 
+// GetPendingTransactions returns pending transactions for a specific account.
+func (c *Client) GetPendingTransactions(accountID string) ([]Transaction, error) {
+	body, err := c.doGet(c.path(fmt.Sprintf("/accounts/%s/pending-transactions", accountID)))
+	if err != nil {
+		return nil, fmt.Errorf("get pending transactions: %w", err)
+	}
+	return parseTransactions(body)
+}
+
 // GetTransactions returns transactions for a specific account within a date range.
 // fromDate and toDate should be ISO 8601 format (YYYY-MM-DD). Pass empty strings
 // for defaults; countries that require an explicit range get a default window.

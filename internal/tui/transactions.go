@@ -16,6 +16,7 @@ type transactionsView struct {
 	pageSize     int
 	fromDate     string
 	toDate       string
+	pending      bool // true when showing pending transactions
 	err          error
 	loading      bool
 	editing      bool   // true when editing date filter
@@ -34,6 +35,16 @@ func newTransactionsView(account api.Account, currency, fromDate, toDate string)
 	}
 }
 
+func newPendingTransactionsView(account api.Account, currency string) transactionsView {
+	return transactionsView{
+		account:  account,
+		currency: currency,
+		pageSize: 20,
+		loading:  true,
+		pending:  true,
+	}
+}
+
 func (v transactionsView) render() string {
 	if v.err != nil {
 		return errorStyle.Render(fmt.Sprintf("Error: %v", v.err))
@@ -41,42 +52,56 @@ func (v transactionsView) render() string {
 
 	var b strings.Builder
 
-	// Date filter
-	fromLabel := "From: "
-	toLabel := "  To: "
-	fromVal := v.fromDate
-	toVal := v.toDate
-	if fromVal == "" {
-		fromVal = "(default)"
-	}
-	if toVal == "" {
-		toVal = "(default)"
-	}
+	if !v.pending {
+		// Date filter
+		fromLabel := "From: "
+		toLabel := "  To: "
+		fromVal := v.fromDate
+		toVal := v.toDate
+		if fromVal == "" {
+			fromVal = "(default)"
+		}
+		if toVal == "" {
+			toVal = "(default)"
+		}
 
-	if v.editing && v.editField == 0 {
-		fromVal = v.editBuffer + "▎"
-	}
-	if v.editing && v.editField == 1 {
-		toVal = v.editBuffer + "▎"
-	}
+		if v.editing && v.editField == 0 {
+			fromVal = v.editBuffer + "▎"
+		}
+		if v.editing && v.editField == 1 {
+			toVal = v.editBuffer + "▎"
+		}
 
-	filterLine := fmt.Sprintf("%s%s%s%s", fromLabel, fromVal, toLabel, toVal)
-	b.WriteString(normalRowStyle.Render(filterLine))
-	b.WriteString("\n\n")
+		filterLine := fmt.Sprintf("%s%s%s%s", fromLabel, fromVal, toLabel, toVal)
+		b.WriteString(normalRowStyle.Render(filterLine))
+		b.WriteString("\n\n")
+	}
 
 	if v.loading {
-		b.WriteString(loadingStyle.Render("Loading transactions..."))
+		msg := "Loading transactions..."
+		if v.pending {
+			msg = "Loading pending transactions..."
+		}
+		b.WriteString(loadingStyle.Render(msg))
 		return b.String()
 	}
 
 	if len(v.transactions) == 0 {
-		b.WriteString(loadingStyle.Render("No transactions found."))
+		msg := "No transactions found."
+		if v.pending {
+			msg = "No pending transactions found."
+		}
+		b.WriteString(loadingStyle.Render(msg))
 		return b.String()
 	}
 
 	// Header
+	lastColLabel := "Balance"
+	if v.pending {
+		lastColLabel = "Status"
+	}
 	header := fmt.Sprintf("  %-12s %-7s %-52s %15s %15s",
-		"Date", "Type", "Description", "Amount", "Balance")
+		"Date", "Type", "Description", "Amount", lastColLabel)
 	b.WriteString(headerRowStyle.Render(header))
 	b.WriteString("\n")
 
@@ -89,14 +114,17 @@ func (v transactionsView) render() string {
 	visible := v.transactions[v.offset:end]
 	for i, tx := range visible {
 		amtStr := FormatAmount(tx.SignedAmount(), "")
-		balStr := FormatAmount(tx.RunningBalance, "")
+		lastCol := FormatAmount(tx.RunningBalance, "")
+		if v.pending {
+			lastCol = tx.Status
+		}
 
 		row := fmt.Sprintf("  %-12s %-7s %-52s %15s %15s",
 			tx.Date(),
 			tx.Kind(),
 			truncate(tx.Detail(), 50),
 			amtStr,
-			balStr,
+			lastCol,
 		)
 
 		globalIdx := v.offset + i
@@ -110,7 +138,11 @@ func (v transactionsView) render() string {
 
 	// Footer
 	b.WriteString("\n")
-	b.WriteString(mutedStyle(fmt.Sprintf("  Showing %d-%d of %d transactions", v.offset+1, end, len(v.transactions))))
+	label := "transactions"
+	if v.pending {
+		label = "pending transactions"
+	}
+	b.WriteString(mutedStyle(fmt.Sprintf("  Showing %d-%d of %d %s", v.offset+1, end, len(v.transactions), label)))
 
 	return b.String()
 }
