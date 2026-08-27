@@ -96,12 +96,17 @@ func (v transactionsView) render() string {
 	}
 
 	// Header
+	amountLabel := "Amount"
 	lastColLabel := "Balance"
+	if v.currency != "" {
+		amountLabel = fmt.Sprintf("Amount (%s)", v.currency)
+		lastColLabel = fmt.Sprintf("Balance (%s)", v.currency)
+	}
 	if v.pending {
 		lastColLabel = "Status"
 	}
 	header := fmt.Sprintf("  %-12s %-7s %-52s %15s %15s",
-		"Date", "Type", "Description", "Amount", lastColLabel)
+		"Date", "Type", "Description", amountLabel, lastColLabel)
 	b.WriteString(headerRowStyle.Render(header))
 	b.WriteString("\n")
 
@@ -111,10 +116,12 @@ func (v transactionsView) render() string {
 		end = len(v.transactions)
 	}
 
+	// Amounts are always in the account's currency, so it's shown once in the
+	// column heading rather than repeated on every row.
 	visible := v.transactions[v.offset:end]
 	for i, tx := range visible {
-		amtStr := FormatAmount(tx.SignedAmount(), v.currency)
-		lastCol := FormatAmount(tx.RunningBalance, v.currency)
+		amtStr := FormatAmount(tx.SignedAmount(), "")
+		lastCol := FormatAmount(tx.RunningBalance, "")
 		if v.pending {
 			lastCol = tx.Status
 		}
