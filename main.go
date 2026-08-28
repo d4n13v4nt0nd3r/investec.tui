@@ -2,6 +2,7 @@ package main
 
 import (
 	_ "embed"
+	"errors"
 	"fmt"
 	"os"
 
@@ -22,7 +23,9 @@ const (
 	windowRows = 35
 )
 
-// envTemplate is shown to a first-time user who has no credentials file yet.
+// envTemplate is shown to someone with no credentials file who cannot be
+// walked through the setup screen, because there is no terminal to draw it
+// on.
 //
 //go:embed env.example
 var envTemplate []byte
@@ -42,30 +45,46 @@ func main() {
 	startup.SizeWindow(windowCols, windowRows)
 
 	envFile, searched := config.ResolveEnvFile()
-	if envFile == "" {
+
+	// Without a terminal the setup screen cannot be drawn, so fall back to
+	// printing where to save the file by hand.
+	if envFile == "" && !startup.IsTerminal() {
 		startup.ShowSetup(os.Stdout, searched, envTemplate)
 		startup.Pause()
 		os.Exit(1)
 	}
 
-	if err := godotenv.Load(envFile); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: could not read %s: %v\n", envFile, err)
-		startup.Pause()
-		os.Exit(1)
+	if envFile != "" {
+		if err := godotenv.Load(envFile); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: could not read %s: %v\n", envFile, err)
+			startup.Pause()
+			os.Exit(1)
+		}
 	}
 
 	// Load the country list and per-country credentials. Authentication happens
 	// once a country is chosen on the landing page.
 	countries, err := config.LoadCountries()
-	if err != nil {
+	if err != nil && !errors.Is(err, config.ErrNoCredentials) {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		fmt.Fprintf(os.Stderr, "Credentials file in use: %s\n", envFile)
 		startup.Pause()
 		os.Exit(1)
 	}
 
-	// Start TUI
+	// Nothing configured yet, so the app opens on the guided setup screen
+	// rather than telling the user to go and write a file.
 	model := tui.NewModel(countries)
+	if errors.Is(err, config.ErrNoCredentials) {
+		target, targetErr := config.TargetEnvFile()
+		if targetErr != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", targetErr)
+			startup.Pause()
+			os.Exit(1)
+		}
+		model = tui.NewSetupModel(countries, target)
+	}
+
 	p := tea.NewProgram(model, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error running TUI: %v\n", err)
