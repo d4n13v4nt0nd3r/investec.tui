@@ -3,6 +3,7 @@
 # Build the downloadable Mac and Windows packages for the Investec TUI.
 #
 #   scripts/release.sh v1.0.0                 build, sign, notarize, publish
+#   scripts/release.sh v1.0.0 --unsigned      ad-hoc sign only, no Apple account needed
 #   scripts/release.sh v1.0.0 --skip-notarize skip the Apple notary service
 #   scripts/release.sh v1.0.0 --no-publish    build only, do not touch GitHub
 #
@@ -24,16 +25,20 @@ DIST="dist"
 
 VERSION="${1:-}"
 if [[ -z "$VERSION" ]]; then
-  echo "usage: scripts/release.sh <version> [--skip-notarize] [--no-publish]" >&2
+  echo "usage: scripts/release.sh <version> [--unsigned] [--skip-notarize] [--no-publish]" >&2
   echo "example: scripts/release.sh v1.0.0" >&2
   exit 64
 fi
 shift
 
 SKIP_NOTARIZE=0
+UNSIGNED=0
 PUBLISH=1
 for arg in "$@"; do
   case "$arg" in
+    # Deliberately unsigned: there is no Developer ID certificate yet.
+    # Notarization is impossible without one, so it implies --skip-notarize.
+    --unsigned)      UNSIGNED=1; SKIP_NOTARIZE=1 ;;
     --skip-notarize) SKIP_NOTARIZE=1 ;;
     --no-publish)    PUBLISH=0 ;;
     *) echo "unknown option: $arg" >&2; exit 64 ;;
@@ -60,15 +65,20 @@ go test -race ./...
 
 # The signing identity is looked up rather than hard-coded, so the script keeps
 # working when the certificate is renewed.
-IDENTITY="$(security find-identity -v -p codesigning \
-  | sed -n 's/.*"\(Developer ID Application: .*\)"/\1/p' | head -n 1)"
+IDENTITY=""
+if [[ "$UNSIGNED" -eq 0 ]]; then
+  IDENTITY="$(security find-identity -v -p codesigning \
+    | sed -n 's/.*"\(Developer ID Application: .*\)"/\1/p' | head -n 1)"
+fi
 
-if [[ -z "$IDENTITY" ]]; then
+if [[ "$UNSIGNED" -eq 1 ]]; then
+  echo "Building unsigned: the app will be ad-hoc signed and Gatekeeper will warn on first launch." >&2
+elif [[ -z "$IDENTITY" ]]; then
   cat >&2 <<'EOF'
 No "Developer ID Application" certificate found in your keychain.
 
 Follow Part A of docs/releasing.md to create one, or re-run with
---skip-notarize to produce an unsigned build for local testing only.
+--unsigned to publish a build Apple has not signed.
 EOF
   if [[ "$SKIP_NOTARIZE" -eq 0 ]]; then
     exit 1
@@ -153,6 +163,12 @@ cat > "$APP/Contents/Info.plist" <<EOF
 </plist>
 EOF
 
+# A repository inside a synced folder (iCloud Drive, Dropbox) hands its files
+# extended attributes, and the staged copy inherits them. codesign refuses to
+# seal a bundle carrying any, with "resource fork, Finder information, or
+# similar detritus not allowed". Only the staged copy is touched.
+xattr -cr "$APP"
+
 if [[ -n "$IDENTITY" ]]; then
   step "Signing with: $IDENTITY"
   # The inner binary is signed first, then the bundle that seals it.
@@ -160,6 +176,15 @@ if [[ -n "$IDENTITY" ]]; then
     --sign "$IDENTITY" "$APP/Contents/MacOS/$BINARY_NAME"
   codesign --force --options runtime --timestamp \
     --sign "$IDENTITY" "$APP"
+  codesign --verify --deep --strict --verbose=2 "$APP"
+else
+  # An ad-hoc signature carries no identity, so it tells the user nothing
+  # about who built the app. It is still worth applying: Apple Silicon
+  # refuses to run an unsigned binary at all, and sealing the bundle means
+  # the Info.plist and icon cannot be altered without breaking it.
+  step "Ad-hoc signing (no Developer ID)"
+  codesign --force --sign - "$APP/Contents/MacOS/$BINARY_NAME"
+  codesign --force --sign - "$APP"
   codesign --verify --deep --strict --verbose=2 "$APP"
 fi
 
@@ -190,6 +215,12 @@ if [[ -f "packaging/macos/AppIcon.icns" ]]; then
 
   MOUNT="$(mktemp -d)"
   hdiutil attach "$RW_DMG" -nobrowse -readwrite -mountpoint "$MOUNT" -quiet
+  # The staged copy picks the sync daemon's attributes straight back up after
+  # they are cleared, and whatever it has when hdiutil reads it travels
+  # inside the image, where it breaks signature verification on the user's
+  # machine. This volume is plain HFS+ with nothing watching it, so it is the
+  # one place they cannot come back.
+  xattr -cr "$MOUNT/$APP_NAME.app"
   cp "packaging/macos/AppIcon.icns" "$MOUNT/.VolumeIcon.icns"
   SetFile -c icnC "$MOUNT/.VolumeIcon.icns"
   SetFile -a C "$MOUNT"
@@ -199,6 +230,7 @@ if [[ -f "packaging/macos/AppIcon.icns" ]]; then
   hdiutil convert "$RW_DMG" -format UDZO -ov -quiet -o "$DMG"
   rm -f "$RW_DMG"
 else
+  xattr -cr "$APP"
   hdiutil create \
     -volname "$APP_NAME $VERSION" \
     -srcfolder "$DIST/stage" \
@@ -210,8 +242,24 @@ if [[ -n "$IDENTITY" ]]; then
   codesign --force --timestamp --sign "$IDENTITY" "$DMG"
 fi
 
+# What was verified before packaging is not necessarily what ends up inside
+# the image, so the copy that actually ships is the one worth checking. A
+# bundle that fails here opens as "damaged" on the user's Mac.
+step "Verifying the app inside the disk image"
+VERIFY_MOUNT="$(mktemp -d)"
+hdiutil attach "$DMG" -nobrowse -readonly -mountpoint "$VERIFY_MOUNT" -quiet
+VERIFY_STATUS=0
+codesign --verify --deep --strict --verbose=2 "$VERIFY_MOUNT/$APP_NAME.app" || VERIFY_STATUS=$?
+hdiutil detach "$VERIFY_MOUNT" -quiet
+rmdir "$VERIFY_MOUNT"
+if [[ "$VERIFY_STATUS" -ne 0 ]]; then
+  echo "The app inside $DMG does not verify, so it is not fit to ship." >&2
+  exit 1
+fi
+
 if [[ "$SKIP_NOTARIZE" -eq 1 ]]; then
-  echo "Skipping notarization. This build will trigger a Gatekeeper warning."
+  echo "Not notarized. First launch needs Control-click -> Open, or Open Anyway"
+  echo "in System Settings -> Privacy & Security."
 else
   step "Notarizing (this usually takes a few minutes)"
   xcrun notarytool submit "$DMG" --keychain-profile "$NOTARY_PROFILE" --wait
@@ -234,14 +282,30 @@ if [[ "$PUBLISH" -eq 0 ]]; then
   exit 0
 fi
 
-if [[ "$SKIP_NOTARIZE" -eq 1 ]]; then
-  echo "Refusing to publish a build that was not notarized." >&2
+# A signed build that was simply not sent to the notary is a half-finished
+# release, and publishing one hides a step that was meant to happen. An
+# --unsigned build is a deliberate choice, so it is allowed through.
+if [[ "$SKIP_NOTARIZE" -eq 1 && "$UNSIGNED" -eq 0 ]]; then
+  echo "Refusing to publish a signed build that was not notarized." >&2
+  echo "Re-run without --skip-notarize, or with --unsigned to publish it as-is." >&2
   exit 1
+fi
+
+NOTES="Download the .dmg on a Mac or the Windows .exe on a PC. See the README for setup."
+if [[ "$UNSIGNED" -eq 1 ]]; then
+  NOTES="$NOTES
+
+This build is not signed, so both systems warn the first time it is opened:
+
+- macOS: open Applications, Control-click InvestecTUI, choose Open, then Open again.
+- Windows: click More info, then Run anyway.
+
+Each is only needed once."
 fi
 
 step "Publishing the GitHub release"
 gh release create "$VERSION" "$DIST"/* \
   --title "$APP_NAME $VERSION" \
-  --notes "Download the .dmg on a Mac or the Windows .exe on a PC. See the README for setup."
+  --notes "$NOTES"
 
 step "Done"
