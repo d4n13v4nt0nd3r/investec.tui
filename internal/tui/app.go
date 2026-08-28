@@ -18,6 +18,7 @@ const (
 	viewAccounts
 	viewBalance
 	viewTransactions
+	viewSetup
 )
 
 // Messages for async operations
@@ -42,6 +43,17 @@ type transactionsLoadedMsg struct {
 	err          error
 }
 
+// setupCheckedMsg carries the result of trying each country's credentials
+// during setup.
+type setupCheckedMsg struct {
+	checks []setupCheck
+}
+
+// setupSavedMsg reports whether the credentials file could be written.
+type setupSavedMsg struct {
+	err error
+}
+
 // Model is the root Bubble Tea model.
 type Model struct {
 	client       *api.Client
@@ -51,6 +63,7 @@ type Model struct {
 	accounts     accountsView
 	balance      balanceView
 	transactions transactionsView
+	setup        setupView
 	width        int
 	height       int
 }
@@ -61,6 +74,16 @@ func NewModel(countries []config.Country) Model {
 		state:       viewCountry,
 		countryList: newCountryView(countries),
 	}
+}
+
+// NewSetupModel starts the app on the guided credentials screen, which is
+// where a first-time user with nothing configured begins. path is the file
+// the credentials will be written to.
+func NewSetupModel(countries []config.Country, path string) Model {
+	m := NewModel(countries)
+	m.state = viewSetup
+	m.setup = newSetupView(countries, path, false, 0)
+	return m
 }
 
 // windowTitle labels the terminal window the app runs in.
@@ -76,7 +99,7 @@ func connectCountry(country config.Country) tea.Cmd {
 		if !country.HasCredentials() {
 			return clientReadyMsg{
 				country: country,
-				err: fmt.Errorf("missing credentials in .env: %s",
+				err: fmt.Errorf("still to be entered: %s -- press c to set them up",
 					strings.Join(country.MissingCredentials(), ", ")),
 			}
 		}
@@ -132,6 +155,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Windows the app cannot change.
 		m.accounts.fitTo(msg.Height)
 		m.transactions.fitTo(msg.Height)
+		m.setup.fitTo(msg.Width)
 		return m, nil
 
 	case clientReadyMsg:
@@ -166,6 +190,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.transactions.loading = false
 		return m, nil
 
+	case setupCheckedMsg:
+		m.setup.checking = false
+		m.setup.checks = msg.checks
+		// Nothing to decide when they all worked, so the file is written
+		// without making the user confirm what they can already see.
+		if m.setup.checksPassed() {
+			return m.saveSetup()
+		}
+		return m, nil
+
+	case setupSavedMsg:
+		m.setup.saving = false
+		if msg.err != nil {
+			m.setup.err = msg.err
+			return m, nil
+		}
+		m.setup.step = setupDone
+		return m, nil
+
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
@@ -177,6 +220,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
 	switch m.state {
+
+	// --- Guided credentials setup ---
+	case viewSetup:
+		return m.handleSetupKey(msg)
 
 	// --- Country landing page ---
 	case viewCountry:
@@ -198,10 +245,17 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.countryList.cursor < len(m.countryList.countries)-1 {
 				m.countryList.cursor++
 			}
+		case "c":
+			return m.openSetup()
 		case "enter":
 			country, ok := m.countryList.selected()
 			if !ok {
 				return m, nil
+			}
+			// A country with nothing entered yet has nothing to connect
+			// to, so selecting it offers to fill it in instead.
+			if !country.HasCredentials() {
+				return m.openSetup()
 			}
 			m.countryList.err = nil
 			m.countryList.connecting = true
@@ -437,9 +491,14 @@ func (m Model) View() string {
 	var content string
 
 	switch m.state {
+	case viewSetup:
+		title := titleStyle.Render(m.setup.title())
+		help := helpStyle.Render(m.setup.help())
+		content = fmt.Sprintf("%s\n%s\n%s", title, m.setup.render(), help)
+
 	case viewCountry:
 		title := titleStyle.Render("Investec Open Banking")
-		help := helpStyle.Render("↑/↓ navigate  •  enter select  •  q quit")
+		help := helpStyle.Render("↑/↓ navigate  •  enter select  •  c credentials  •  q quit")
 		content = fmt.Sprintf("%s\n%s\n%s", title, m.countryList.render(), help)
 
 	case viewAccounts:

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -37,6 +38,8 @@ func TestBodyStyles_SetExplicitForeground(t *testing.T) {
 		{name: "selected row", style: selectedRowStyle},
 		{name: "muted help text", style: helpStyle},
 		{name: "label", style: labelStyle},
+		{name: "hint", style: hintStyle},
+		{name: "success", style: successStyle},
 	}
 
 	for _, tt := range tests {
@@ -139,6 +142,28 @@ func transactionsModel(width, height int) Model {
 	return m
 }
 
+// setupModel builds the guided credentials screen at a given step, with a
+// value long enough to fill the masked input and a failed check on show,
+// which is the widest either can get.
+func setupModel(step setupStep, width, height int) Model {
+	m := NewSetupModel(nil, "/Users/someone/Library/Application Support/investec-tui/investec.env")
+	m = resize(m, width, height)
+
+	if step >= setupFields {
+		m.setup.startFields()
+		m.setup.input.SetValue(strings.Repeat("x", 80))
+	}
+	if step == setupChecking {
+		m.setup.checks = []setupCheck{
+			{name: "South Africa", code: "ZA"},
+			{name: "Mauritius", code: "MU", err: errors.New(`auth failed (HTTP 400): {"error":"invalid_client"}`)},
+		}
+	}
+	m.setup.step = step
+
+	return m
+}
+
 // accountsModel builds the accounts list with more accounts than fit on one
 // page, which is the normal case for a business profile.
 func accountsModel(width, height, count int) Model {
@@ -184,6 +209,11 @@ func TestView_FitsCommonConsoleSizes(t *testing.T) {
 	}{
 		{name: "transactions", build: transactionsModel},
 		{name: "accounts", build: func(w, h int) Model { return accountsModel(w, h, 60) }},
+		{name: "setup intro", build: func(w, h int) Model { return setupModel(setupIntro, w, h) }},
+		{name: "setup countries", build: func(w, h int) Model { return setupModel(setupCountries, w, h) }},
+		{name: "setup credentials", build: func(w, h int) Model { return setupModel(setupFields, w, h) }},
+		{name: "setup checking", build: func(w, h int) Model { return setupModel(setupChecking, w, h) }},
+		{name: "setup done", build: func(w, h int) Model { return setupModel(setupDone, w, h) }},
 	}
 
 	for _, v := range views {
@@ -224,9 +254,14 @@ func TestView_LeavesNoUnpaintedGaps(t *testing.T) {
 	t.Cleanup(func() { lipgloss.SetColorProfile(previous) })
 
 	views := map[string]Model{
-		"country":      countryModel(120, 35),
-		"accounts":     accountsModel(120, 35, 60),
-		"transactions": transactionsModel(120, 35),
+		"country":           countryModel(120, 35),
+		"accounts":          accountsModel(120, 35, 60),
+		"transactions":      transactionsModel(120, 35),
+		"setup intro":       setupModel(setupIntro, 120, 35),
+		"setup countries":   setupModel(setupCountries, 120, 35),
+		"setup credentials": setupModel(setupFields, 120, 35),
+		"setup checking":    setupModel(setupChecking, 120, 35),
+		"setup done":        setupModel(setupDone, 120, 35),
 	}
 
 	for name, m := range views {

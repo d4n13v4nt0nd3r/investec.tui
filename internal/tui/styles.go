@@ -91,6 +91,17 @@ var (
 			Background(bgColor).
 			MarginTop(1)
 
+	// hintStyle is quiet explanatory text sitting inside a view, where
+	// helpStyle's top margin would push everything else down a line.
+	hintStyle = lipgloss.NewStyle().
+			Foreground(mutedColor).
+			Background(bgColor)
+
+	successStyle = lipgloss.NewStyle().
+			Foreground(accentColor).
+			Background(bgColor).
+			Bold(true)
+
 	errorStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FF5555")).
 			Background(bgColor).
