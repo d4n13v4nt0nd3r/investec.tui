@@ -100,20 +100,72 @@ xcrun notarytool store-credentials "investec-tui-notary" \
 The profile name `investec-tui-notary` is what `scripts/release.sh` looks for.
 No Apple secrets are stored in this repository.
 
-## Optional: app icon
+## App icon
 
-If `packaging/macos/AppIcon.icns` exists, the release script bundles it as the
-app icon. Without it macOS shows the generic application icon. To create one
-from a 1024x1024 PNG:
+Both platforms ship the zebra mark in white on the app's own background colour.
+Every artifact is committed, so a normal release does not rebuild any of them:
+
+| Artifact | Used by |
+|----------|---------|
+| `packaging/source/tui-zebra-logo.png` | The original artwork everything derives from |
+| `packaging/macos/AppIcon.icns` | Copied into the `.app` by `scripts/release.sh` |
+| `packaging/windows/app.ico` | Source for the resource objects below |
+| `rsrc_windows_amd64.syso`, `rsrc_windows_arm64.syso` | Linked into the `.exe` automatically, because `go build` picks up any `*.syso` sitting next to the main package |
+
+The `.syso` files must stay at the repository root. Go matches them by the
+`_windows_amd64` / `_windows_arm64` filename suffix, so each is only linked into
+its own target and they are ignored entirely on macOS builds.
+
+### The DMG's icon
+
+`scripts/release.sh` also gives the mounted volume itself a custom icon (the
+drive shown in the Finder window that opens when someone double-clicks the
+`.dmg`), using the same zebra mark. This needs a writable image first: the
+custom-icon flag is a bit in the HFS+ catalog entry for the volume's root
+directory, not a plain file attribute, so it can only be set once there is an
+actual mounted volume to set it on -- setting it on the plain folder being
+packaged has no effect. The script therefore builds an uncompressed image,
+mounts it, drops `.VolumeIcon.icns` at the root and flags the root directory,
+then unmounts and converts to the compressed format that ships.
+
+What this deliberately does not attempt is a custom icon on the `.dmg` file
+itself, i.e. what Finder shows in Downloads before it is ever double-clicked.
+That icon is stored as a resource fork plus a Finder-info flag on the outer
+file, which macOS keeps as an extended attribute rather than file content.
+Extended attributes do not survive a plain HTTP download -- GitHub Releases,
+`curl`, browsers, etc. only transfer the data fork -- so setting one would only
+ever be visible on the machine that built it, not to anyone who downloads the
+release. This is a real limitation of how macOS stores that particular kind of
+icon, not something a build script can work around. The Windows `.exe` icon
+does not have this problem because it is embedded directly in the PE file's
+own bytes, which is exactly why `.exe` downloads show the zebra immediately
+while the `.dmg` download will always show the generic disk-image icon until
+it is mounted.
+
+### Rebuilding
+
+Only needed after changing the artwork or the icon geometry:
 
 ```bash
-mkdir -p /tmp/AppIcon.iconset
-for size in 16 32 64 128 256 512; do
-  sips -z $size $size icon.png --out /tmp/AppIcon.iconset/icon_${size}x${size}.png
-  sips -z $((size*2)) $((size*2)) icon.png --out /tmp/AppIcon.iconset/icon_${size}x${size}@2x.png
-done
-iconutil -c icns /tmp/AppIcon.iconset -o packaging/macos/AppIcon.icns
+./icons
 ```
+
+This needs Pillow (`python3 -m pip install Pillow`) and has to run on macOS,
+since `iconutil` builds the `.icns`. It regenerates everything, then links a
+throwaway Windows binary per architecture and reads the icon back out of the
+PE, because a malformed resource object links without complaint and simply
+produces an executable with no icon.
+
+Afterwards check `packaging/source/preview.png`, a contact sheet of both
+platforms at the sizes that actually get used.
+
+### Why small sizes look different
+
+At or below 24px the icon switches to a solid head silhouette instead of the
+striped mark. The artwork has roughly a dozen stripes, which cannot be
+represented in a 16px-wide shape at all -- they average out to flat grey no
+matter how the resampling is done. The crossover is `SIMPLIFY_AT` in
+`packaging/tools/build_icons.py`.
 
 ## Troubleshooting
 

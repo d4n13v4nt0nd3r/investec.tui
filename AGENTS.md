@@ -21,6 +21,7 @@ Go TUI application for Investec Open Banking (Private Banking). Uses Bubble Tea 
 - `internal/tui/` — Bubble Tea views and styling. Each view is a separate file.
 - `internal/startup/` — platform glue for running as a downloaded app: Terminal relaunch on macOS, console pause on Windows, first-run setup screen
 - `scripts/release.sh` — builds, signs, notarizes and publishes the Mac/Windows packages
+- `packaging/` — app icon artwork, the generated `.icns`/`.ico`, and the Python tools that build them. See `docs/releasing.md`; rebuild with `./icons`, which is only needed when the artwork changes.
 
 The app uses a single root `Model` in `app.go` that routes between four views: country → accounts → balance → transactions. The API client is created (and authenticated) only after a country is selected.
 
