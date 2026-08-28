@@ -10,7 +10,7 @@ not export it into GitHub secrets.
 
 | Artifact | Platform | Notes |
 |----------|----------|-------|
-| `InvestecTUI-<version>.dmg` | macOS | Universal (Intel + Apple Silicon), signed, notarized, stapled |
+| `InvestecTUI-<version>.dmg` | macOS | Universal (Intel + Apple Silicon), signed and notarized when a certificate is available |
 | `InvestecTUI-<version>-Windows-x64.exe` | Windows | Unsigned, the download most people want |
 | `InvestecTUI-<version>-Windows-ARM64.exe` | Windows on ARM | Unsigned, optional |
 | `SHA256SUMS.txt` | -- | Checksums for all of the above |
@@ -18,7 +18,33 @@ not export it into GitHub secrets.
 The repository is internal, so release assets are only downloadable by signed-in
 BeamMoney org members.
 
-## Running a release
+## Releasing without an Apple certificate
+
+This is where we are today: nobody on the team has been added to the company
+Apple Developer account yet, so there is no Developer ID certificate to sign
+with and nothing to notarize.
+
+```bash
+./release v1.0.0 --unsigned
+```
+
+That builds and publishes exactly the same artifacts, with two differences:
+
+- The `.app` gets an **ad-hoc** signature instead of a Developer ID one. This
+  is not a mark of who built it; it exists because Apple Silicon refuses to
+  run a Mach-O with no signature at all, and because it seals the bundle so
+  the `Info.plist` and icon cannot be swapped without breaking it.
+- The `.dmg` is not signed and not notarized, so Gatekeeper stops the first
+  launch. Users get past it with Control-click -> **Open**, or **Open Anyway**
+  in System Settings -> Privacy & Security. The release notes and the README
+  both spell this out.
+
+The Mac download is therefore no worse off than the Windows one, which has
+always been unsigned. Once the Developer ID certificate exists, complete the
+one-time setup below and drop the flag: nothing else about the release
+changes.
+
+## Running a signed release
 
 ```bash
 ./release v1.0.0
@@ -29,15 +55,19 @@ Useful variations while testing:
 ```bash
 ./release v1.0.0 --skip-notarize --no-publish   # full local dry run
 ./release v1.0.0 --no-publish                   # sign and notarize, do not upload
+./release v1.0.0 --unsigned --no-publish        # build the unsigned packages only
 ```
 
-The script refuses to publish a build that was not notarized.
+The script refuses to publish a **signed** build that skipped notarization,
+since that is a step someone meant to run rather than a decision. `--unsigned`
+is a decision, so it publishes.
 
 Everything lands in `dist/`, which is gitignored.
 
 ## One-time setup
 
-Do these once. After that `./release` needs no further input.
+Not needed for `--unsigned` releases. Do these once when the Apple Developer
+account is available, and after that `./release` needs no further input.
 
 ### Part A -- Developer ID Application certificate
 
