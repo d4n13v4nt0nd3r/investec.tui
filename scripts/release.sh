@@ -168,11 +168,43 @@ fi
 step "Building the disk image"
 DMG="$DIST/$APP_NAME-$VERSION.dmg"
 ln -s /Applications "$DIST/stage/Applications"
-hdiutil create \
-  -volname "$APP_NAME $VERSION" \
-  -srcfolder "$DIST/stage" \
-  -fs HFS+ -format UDZO -ov -quiet \
-  "$DMG"
+
+if [[ -f "packaging/macos/AppIcon.icns" ]]; then
+  # The volume's custom-icon flag has to be set on the mounted HFS+ volume
+  # itself: it is a catalog-entry bit, not a plain file attribute, so setting
+  # it on the plain source folder before hdiutil ever creates the volume has
+  # no effect. That means going through a writable image first:
+  #   1. build an uncompressed (UDRW) image from the staged folder
+  #   2. mount it, drop the icon file at its root, flag the root directory
+  #   3. unmount, then convert to the compressed format actually shipped
+  # This flag lives inside the image's own filesystem, so unlike a custom
+  # icon on an ordinary file it survives being downloaded, since it is
+  # image content rather than an extended attribute on the outer .dmg file.
+  step "Setting the mounted volume's icon"
+  RW_DMG="$DIST/.rw.dmg"
+  hdiutil create \
+    -volname "$APP_NAME $VERSION" \
+    -srcfolder "$DIST/stage" \
+    -fs HFS+ -format UDRW -ov -quiet \
+    "$RW_DMG"
+
+  MOUNT="$(mktemp -d)"
+  hdiutil attach "$RW_DMG" -nobrowse -readwrite -mountpoint "$MOUNT" -quiet
+  cp "packaging/macos/AppIcon.icns" "$MOUNT/.VolumeIcon.icns"
+  SetFile -c icnC "$MOUNT/.VolumeIcon.icns"
+  SetFile -a C "$MOUNT"
+  hdiutil detach "$MOUNT" -quiet
+  rmdir "$MOUNT"
+
+  hdiutil convert "$RW_DMG" -format UDZO -ov -quiet -o "$DMG"
+  rm -f "$RW_DMG"
+else
+  hdiutil create \
+    -volname "$APP_NAME $VERSION" \
+    -srcfolder "$DIST/stage" \
+    -fs HFS+ -format UDZO -ov -quiet \
+    "$DMG"
+fi
 
 if [[ -n "$IDENTITY" ]]; then
   codesign --force --timestamp --sign "$IDENTITY" "$DMG"
