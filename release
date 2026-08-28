@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Convenience wrapper so releasing mirrors ./run. See scripts/release.sh.
+set -euo pipefail
+
+exec "$(dirname "$0")/scripts/release.sh" "$@"

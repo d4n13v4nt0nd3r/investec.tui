@@ -21,54 +21,66 @@ Each user needs their own Investec Open Banking API keys. Credentials are person
 
 > **Important:** These credentials give access to your bank account data. Treat them like a password — do not share them, email them, or paste them into chat.
 
-## Step 2: Install Required Software
+## Step 2: Download the App
 
-You need two things installed on your computer: **Git** (to download the app) and **Go** (to build and run it).
+Nothing needs to be installed first — the download is a single self-contained file.
+
+Go to the [Releases page](https://github.com/BeamMoney/tui.investec-openbanking.go/releases) (sign in to GitHub with your BeamMoney account) and grab the newest:
 
 ### macOS
 
-1. Open the **Terminal** app (press `Cmd + Space`, type `Terminal`, press Enter)
-2. Install Homebrew (a package manager) by pasting this command and pressing Enter:
-   ```bash
-   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-   ```
-   Follow the on-screen prompts. You may need to enter your Mac password.
-3. Once Homebrew is installed, install Git and Go:
-   ```bash
-   brew install git go
-   ```
+1. Download `InvestecTUI-<version>.dmg`. One file works on both Intel and Apple Silicon Macs.
+2. Double-click the downloaded `.dmg`.
+3. Drag **InvestecTUI** onto the **Applications** folder shown in the window.
+4. Eject the disk image (click the eject arrow next to it in Finder's sidebar).
+
+   macOS will warn the first time you open it, because we do not yet pay for an Apple developer certificate. Step 3 shows how to get past it.
 
 ### Windows
 
-1. **Install Git:** Download from [git-scm.com/download/win](https://git-scm.com/download/win) and run the installer. Accept all the default options.
-2. **Install Go:** Download from [go.dev/dl](https://go.dev/dl/), choose the **Windows** `.msi` installer, and run it. Accept the defaults.
-3. After both installations, close and reopen any terminal windows so the new programs are recognised.
-4. Open **Git Bash** (search for it in the Start menu) — use this for all the commands below.
+1. Download `InvestecTUI-<version>-Windows-x64.exe`. Choose the `ARM64` file instead only if you have a Windows-on-ARM machine such as a Surface Pro X.
+2. Move it somewhere permanent, such as your **Desktop** or **Documents** folder.
 
-## Step 3: Download the App
+   Windows will warn you that the file is not commonly downloaded, because we do not yet pay for a Microsoft signing certificate. Choose **Keep** to complete the download.
 
-Open your terminal (**Terminal** on Mac, **Git Bash** on Windows) and run these commands one at a time:
+## Step 3: Run the App
 
-```bash
-# Download the app
-git clone https://github.com/BeamMoney/tui.investec-openbanking.go.git
+### macOS
 
-# Go into the app folder
-cd tui.investec-openbanking.go
-```
+Open your **Applications** folder, **Control-click** (or right-click) **InvestecTUI** and choose **Open**, then **Open** again in the dialog. A Terminal window opens and the app runs inside it.
 
-Stay in this folder for the remaining steps.
+The long way round is only needed the first time. macOS says it *"cannot verify the developer"* because the app is not signed by Apple yet; after that first Open, double-clicking works normally.
 
-## Step 4: Create Your Credentials File
+If you double-clicked by mistake and got a dead end, open **System Settings** -> **Privacy & Security**, scroll down, and click **Open Anyway** next to InvestecTUI.
 
-The app reads a file called `.env` in the project root (the folder you are now in). Start from the template that ships with the app:
+### Windows
 
-```bash
-cp env.example .env
-nano .env
-```
+Double-click the `.exe` you saved. A console window opens and the app runs inside it.
 
-`nano` is a terminal text editor. Fill in your keys from Step 1 so the file looks like this:
+The first time you run it, Windows shows a blue **"Windows protected your PC"** screen. This is expected for an unsigned app. Click **More info**, then **Run anyway**. Windows only asks once.
+
+## Step 4: Enter Your Keys
+
+The first run opens a setup screen that walks you through it. Nothing has to be created by hand.
+
+1. Tick the countries you bank in.
+2. Paste the Client ID, Client Secret and API Key for each one. They are hidden as you type; press `ctrl+r` to check a value you are unsure of.
+3. The app tries the keys against Investec, then saves them.
+
+They are saved, readable only by you, in:
+
+| System | Where they are saved |
+|--------|----------------------|
+| macOS | `~/Library/Application Support/investec-tui/investec.env` |
+| Windows | `%APPDATA%\investec-tui\investec.env` |
+
+To change or add keys later, press `c` on the country page.
+
+> **Important:** treat that file like a password. Do not email it around or store it in a shared folder.
+
+### Writing the file yourself instead
+
+If you would rather not use the setup screen, save a plain text file at the path above containing:
 
 ```
 COUNTRY_LIST={South Africa:ZA;Mauritius:MU}
@@ -82,53 +94,12 @@ MU_CLIENT_SECRET=your_mu_client_secret
 MU_API_KEY=your_mu_api_key
 ```
 
-To save and exit nano: press `Ctrl + O`, then `Enter`, then `Ctrl + X`.
-
 Notes:
 
 - `COUNTRY_LIST` is a `{Name:CODE;Name:CODE}` list. Only the countries listed here appear on the landing page, so delete any country you do not bank in (and its keys).
 - Each country needs its own credentials from Step 1, obtained while logged in to that country's Investec Online profile.
 - Do not put spaces around the `=` signs.
-- `.env` is gitignored, so your keys stay on your machine.
-
-Check which values are filled in without printing your secrets:
-
-```bash
-awk -F= '/^[A-Z_]+=/{print $1": "(length($2)>0?"set":"EMPTY")}' .env
-```
-
-## Step 5: Run the App
-
-### macOS
-
-```bash
-./run
-```
-
-### Windows (Git Bash)
-
-```bash
-go build -o investec.openbanking.tui.exe .
-./investec.openbanking.tui.exe
-```
-
-## Running the App Again Later
-
-Once installed, you only need to do this each time:
-
-### macOS
-
-```bash
-cd tui.investec-openbanking.go
-./run
-```
-
-### Windows (Git Bash)
-
-```bash
-cd tui.investec-openbanking.go
-./investec.openbanking.tui.exe
-```
+- On Windows you can also simply keep `investec.env` in the same folder as the `.exe`.
 
 ## Updating the App
 Already downloaded the app before? Get the latest changes like this:
@@ -157,13 +128,49 @@ Notes:
 
 | Problem | Solution |
 |---------|----------|
-| `command not found: go` | Go is not installed or the terminal needs to be reopened after installation |
-| `command not found: git` | Git is not installed |
-| `Authentication failed` | Double-check the values in your `.env` file match exactly what Investec shows |
-| `could not load .env file` | Make sure `.env` is in the project root, next to `main.go` and `run` |
-| `no credentials found in .env` | The `<CODE>_*` values are still empty -- run `nano .env` again |
-| A country shows `missing` on the landing page | That country's `<CODE>_CLIENT_ID`, `<CODE>_CLIENT_SECRET` or `<CODE>_API_KEY` is empty |
+| The setup screen says a key failed | Press `e` to go back and re-paste it. Investec shows the exact values under Programmable Banking -> Open API. |
+| The setup screen could not save | The path it shows is not writable. Check the folder exists and belongs to you, or point `INVESTEC_TUI_ENV` at a file you can write. |
+| `Authentication failed` | Press `c` on the country page and re-enter the keys for that country |
+| A country shows `missing` on the landing page | Press `c` (or Enter on that country) and fill in its keys |
 | App shows no accounts | Your API access may not be enrolled yet — revisit Step 1 |
+| Windows: "Windows protected your PC" | Click **More info** -> **Run anyway**. Only needed once. |
+| Windows: the window flashes and disappears | It should now pause and wait for Enter. If it does not, open PowerShell, drag the `.exe` into the window and press Enter to see the message. |
+| macOS: "cannot verify the developer" or "Apple could not verify" | Expected: the app is not signed yet. Control-click it in **Applications** and choose **Open**, or use **Open Anyway** in **System Settings** -> **Privacy & Security**. |
+| macOS: nothing happens on double-click | Make sure you dragged the app to **Applications** from the disk image rather than running it from the mounted image |
+
+## For Developers: Build From Source
+
+Requires [Go](https://go.dev/dl/) and Git.
+
+```bash
+git clone https://github.com/BeamMoney/tui.investec-openbanking.go.git
+cd tui.investec-openbanking.go
+./run
+```
+
+With no `.env` in the clone, `./run` opens the same setup screen a downloaded copy shows, and writes the answers to the repo's `.env`. Filling in `env.example` by hand still works:
+
+```bash
+cp env.example .env
+$EDITOR .env
+```
+
+The app looks for a credentials file in this order, stopping at the first hit. In each folder it tries `investec.env` first, then `.env`:
+
+1. The full path in the `INVESTEC_TUI_ENV` environment variable, if set
+2. The current working directory
+3. The folder holding the executable
+4. The per-user config folder from the table in Step 4
+
+So `./run` from a clone keeps using the repo's own `.env`, and a packaged build falls through to the per-user folder. The setup screen saves to whichever file is already in use, and to the per-user folder when there is none.
+
+Running tests:
+
+```bash
+go test -race ./...
+```
+
+Publishing a release is documented in [docs/releasing.md](docs/releasing.md).
 
 ## Navigation
 
@@ -173,7 +180,19 @@ Notes:
 |-----------|---------------------|
 | ↑/↓ or k/j | Navigate countries |
 | Enter     | Connect and load accounts |
+| c         | Change or add credentials |
 | q         | Quit                |
+
+### Setup Screen
+
+| Key       | Action              |
+|-----------|---------------------|
+| Enter     | Next question       |
+| Shift+Tab | Previous question   |
+| Space     | Tick a country      |
+| ctrl+r    | Show or hide the value being entered |
+| ctrl+s    | Save without checking the keys first |
+| Esc       | Back a step         |
 
 ### Accounts List
 
@@ -233,17 +252,28 @@ MU requires an explicit `fromDate`/`toDate` on transactions, so the app defaults
 │   │   ├── client.go        # HTTP client, auth, country-scoped API methods
 │   │   └── models.go        # Response structs and per-country parsing
 │   ├── config/
-│   │   └── config.go        # COUNTRY_LIST and per-country credentials
+│   │   ├── config.go        # COUNTRY_LIST and per-country credentials
+│   │   ├── env_file.go      # Where the credentials file is looked for
+│   │   └── save.go          # Writing the credentials file back out
+│   ├── startup/
+│   │   ├── console.go       # Terminal detection, press-Enter pause
+│   │   ├── relaunch_*.go    # macOS: hand a double-clicked .app to Terminal
+│   │   └── setup.go         # Printed fallback when there is no terminal for the setup screen
 │   └── tui/
 │       ├── app.go           # Bubble Tea model, routing
+│       ├── setup.go         # Guided, masked credentials entry
 │       ├── country.go       # Country selection landing page
 │       ├── accounts.go      # Accounts list view
 │       ├── balance.go       # Balance detail view
 │       ├── transactions.go  # Transactions table view
 │       └── styles.go        # Styling and formatting
-├── env.example              # Template for .env
+├── scripts/
+│   └── release.sh           # Build, sign, notarize and publish the packages
+├── env.example              # Template for the credentials file
 ├── .env                     # Credentials (gitignored)
 ├── run                      # Build & run script
+├── release                  # Wrapper for scripts/release.sh
+├── dist/                    # Release artifacts (gitignored)
 └── docs/                    # Documentation
 ```
 

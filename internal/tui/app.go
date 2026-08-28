@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 	"investec.openbanking.tui/internal/api"
 	"investec.openbanking.tui/internal/config"
 )
@@ -17,6 +18,7 @@ const (
 	viewAccounts
 	viewBalance
 	viewTransactions
+	viewSetup
 )
 
 // Messages for async operations
@@ -41,6 +43,17 @@ type transactionsLoadedMsg struct {
 	err          error
 }
 
+// setupCheckedMsg carries the result of trying each country's credentials
+// during setup.
+type setupCheckedMsg struct {
+	checks []setupCheck
+}
+
+// setupSavedMsg reports whether the credentials file could be written.
+type setupSavedMsg struct {
+	err error
+}
+
 // Model is the root Bubble Tea model.
 type Model struct {
 	client       *api.Client
@@ -50,6 +63,7 @@ type Model struct {
 	accounts     accountsView
 	balance      balanceView
 	transactions transactionsView
+	setup        setupView
 	width        int
 	height       int
 }
@@ -62,9 +76,22 @@ func NewModel(countries []config.Country) Model {
 	}
 }
 
-// Init does nothing until a country has been chosen.
+// NewSetupModel starts the app on the guided credentials screen, which is
+// where a first-time user with nothing configured begins. path is the file
+// the credentials will be written to.
+func NewSetupModel(countries []config.Country, path string) Model {
+	m := NewModel(countries)
+	m.state = viewSetup
+	m.setup = newSetupView(countries, path, false, 0)
+	return m
+}
+
+// windowTitle labels the terminal window the app runs in.
+const windowTitle = "Investec Open Banking"
+
+// Init names the window; nothing else happens until a country is chosen.
 func (m Model) Init() tea.Cmd {
-	return nil
+	return tea.SetWindowTitle(windowTitle)
 }
 
 func connectCountry(country config.Country) tea.Cmd {
@@ -72,7 +99,7 @@ func connectCountry(country config.Country) tea.Cmd {
 		if !country.HasCredentials() {
 			return clientReadyMsg{
 				country: country,
-				err: fmt.Errorf("missing credentials in .env: %s",
+				err: fmt.Errorf("still to be entered: %s -- press c to set them up",
 					strings.Join(country.MissingCredentials(), ", ")),
 			}
 		}
@@ -124,6 +151,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		// The tables have to fit whatever the console gives us, which on
+		// Windows the app cannot change.
+		m.accounts.fitTo(msg.Height)
+		m.transactions.fitTo(msg.Height)
+		m.setup.fitTo(msg.Width)
 		return m, nil
 
 	case clientReadyMsg:
@@ -135,7 +167,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.countryList.err = nil
 		m.client = msg.client
 		m.country = msg.country
-		m.accounts = newAccountsView(msg.country.Code)
+		m.accounts = newAccountsView(msg.country.Code, m.height)
 		m.state = viewAccounts
 		return m, m.loadAccounts()
 
@@ -143,6 +175,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.accounts.accounts = dedupeAccounts(msg.accounts)
 		m.accounts.err = msg.err
 		m.accounts.cursor = 0
+		m.accounts.offset = 0
 		return m, nil
 
 	case balanceLoadedMsg:
@@ -157,6 +190,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.transactions.loading = false
 		return m, nil
 
+	case setupCheckedMsg:
+		m.setup.checking = false
+		m.setup.checks = msg.checks
+		// Nothing to decide when they all worked, so the file is written
+		// without making the user confirm what they can already see.
+		if m.setup.checksPassed() {
+			return m.saveSetup()
+		}
+		return m, nil
+
+	case setupSavedMsg:
+		m.setup.saving = false
+		if msg.err != nil {
+			m.setup.err = msg.err
+			return m, nil
+		}
+		m.setup.step = setupDone
+		return m, nil
+
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
@@ -168,6 +220,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
 	switch m.state {
+
+	// --- Guided credentials setup ---
+	case viewSetup:
+		return m.handleSetupKey(msg)
 
 	// --- Country landing page ---
 	case viewCountry:
@@ -189,10 +245,17 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.countryList.cursor < len(m.countryList.countries)-1 {
 				m.countryList.cursor++
 			}
+		case "c":
+			return m.openSetup()
 		case "enter":
 			country, ok := m.countryList.selected()
 			if !ok {
 				return m, nil
+			}
+			// A country with nothing entered yet has nothing to connect
+			// to, so selecting it offers to fill it in instead.
+			if !country.HasCredentials() {
+				return m.openSetup()
 			}
 			m.countryList.err = nil
 			m.countryList.connecting = true
@@ -212,16 +275,20 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.accounts.searchQuery != "" {
 				m.accounts.searchQuery = ""
 				m.accounts.cursor = 0
+				m.accounts.offset = 0
+				m.accounts.fitTo(m.height)
 				return m, nil
 			}
 			m.state = viewCountry
 		case "up", "k":
 			if m.accounts.cursor > 0 {
 				m.accounts.cursor--
+				m.accounts.clampOffset()
 			}
 		case "down", "j":
 			if m.accounts.cursor < len(m.accounts.visibleAccounts())-1 {
 				m.accounts.cursor++
+				m.accounts.clampOffset()
 			}
 		case "enter":
 			accs := m.accounts.visibleAccounts()
@@ -235,12 +302,16 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.loadAccounts()
 		case "s":
 			m.accounts.searching = true
+			// The search box takes two lines from the table.
+			m.accounts.fitTo(m.height)
 		default:
 			// Typing a digit jumps straight into account number search.
 			if len(key) == 1 && key[0] >= '0' && key[0] <= '9' {
 				m.accounts.searching = true
 				m.accounts.searchQuery += key
 				m.accounts.cursor = 0
+				m.accounts.offset = 0
+				m.accounts.fitTo(m.height)
 			}
 		}
 
@@ -259,7 +330,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.client.RequiresDateRange() {
 				fromDate, toDate = api.DefaultDateRange()
 			}
-			m.transactions = newTransactionsView(acc, currency, fromDate, toDate)
+			m.transactions = newTransactionsView(acc, currency, fromDate, toDate, m.height)
 			m.state = viewTransactions
 			return m, m.loadTransactions(acc.AccountID.String(), fromDate, toDate)
 		case "p":
@@ -268,7 +339,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.balance.balance != nil && m.balance.balance.Currency != "" {
 				currency = m.balance.balance.Currency
 			}
-			m.transactions = newPendingTransactionsView(acc, currency)
+			m.transactions = newPendingTransactionsView(acc, currency, m.height)
 			m.state = viewTransactions
 			return m, m.loadPendingTransactions(acc.AccountID.String())
 		case "r":
@@ -336,6 +407,8 @@ func (m Model) handleAccountSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.accounts.searching = false
 		m.accounts.searchQuery = ""
 		m.accounts.cursor = 0
+		m.accounts.offset = 0
+		m.accounts.fitTo(m.height)
 	case "enter":
 		m.accounts.searching = false
 		accs := m.accounts.visibleAccounts()
@@ -349,22 +422,27 @@ func (m Model) handleAccountSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if len(m.accounts.searchQuery) > 0 {
 			m.accounts.searchQuery = m.accounts.searchQuery[:len(m.accounts.searchQuery)-1]
 			m.accounts.cursor = 0
+			m.accounts.offset = 0
 		} else {
 			m.accounts.searching = false
+			m.accounts.fitTo(m.height)
 		}
 	case "up":
 		if m.accounts.cursor > 0 {
 			m.accounts.cursor--
+			m.accounts.clampOffset()
 		}
 	case "down":
 		if m.accounts.cursor < len(m.accounts.visibleAccounts())-1 {
 			m.accounts.cursor++
+			m.accounts.clampOffset()
 		}
 	default:
 		// Account numbers are numeric, so only accept digits.
 		if len(key) == 1 && key[0] >= '0' && key[0] <= '9' {
 			m.accounts.searchQuery += key
 			m.accounts.cursor = 0
+			m.accounts.offset = 0
 		}
 	}
 
@@ -413,9 +491,14 @@ func (m Model) View() string {
 	var content string
 
 	switch m.state {
+	case viewSetup:
+		title := titleStyle.Render(m.setup.title())
+		help := helpStyle.Render(m.setup.help())
+		content = fmt.Sprintf("%s\n%s\n%s", title, m.setup.render(), help)
+
 	case viewCountry:
 		title := titleStyle.Render("Investec Open Banking")
-		help := helpStyle.Render("↑/↓ navigate  •  enter select  •  q quit")
+		help := helpStyle.Render("↑/↓ navigate  •  enter select  •  c credentials  •  q quit")
 		content = fmt.Sprintf("%s\n%s\n%s", title, m.countryList.render(), help)
 
 	case viewAccounts:
@@ -445,5 +528,39 @@ func (m Model) View() string {
 		content = fmt.Sprintf("%s\n%s\n%s", title, m.transactions.render(), help)
 	}
 
-	return appStyle.Render(content)
+	// Paint every cell of the window with the app's own background.
+	// Terminal.app ignores requests to change the real window background, so
+	// filling the viewport ourselves is the only way to look the same across
+	// terminal profiles.
+	screen := appStyle
+	if m.width > 0 {
+		// Clip before padding. Width pads short lines but wraps long ones, and
+		// a wrapped table row would destroy the column alignment.
+		content = clipLines(content, m.width-2*appHPadding)
+		screen = screen.Width(m.width)
+	}
+	if m.height > 0 {
+		screen = screen.Height(m.height)
+	}
+
+	return screen.Render(content)
+}
+
+// clipLines truncates every line to width, leaving short lines untouched.
+//
+// lipgloss's MaxWidth cannot be used for this. Its render pass also pads every
+// line out to the width of the longest one, and because a style with no
+// colours produces no escape sequences, that padding arrives as bare spaces.
+// Those spaces then show the terminal profile's own background instead of the
+// app's, drawing bars across the window.
+func clipLines(s string, width int) string {
+	if width <= 0 {
+		return s
+	}
+
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		lines[i] = ansi.Truncate(line, width, "")
+	}
+	return strings.Join(lines, "\n")
 }

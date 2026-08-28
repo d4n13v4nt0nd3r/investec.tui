@@ -1,4 +1,7 @@
+# Credentials -- never commit these
 .env
+investec.env
+
 investec.openbanking.tui
 *.exe
 *.exe~
@@ -8,3 +11,9 @@ investec.openbanking.tui
 *.test
 *.out
 vendor/
+
+# Release artifacts
+dist/
+
+# Intermediate the .icns is compiled from; AppIcon.icns itself is committed
+packaging/macos/AppIcon.iconset/

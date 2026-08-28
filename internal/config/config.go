@@ -1,10 +1,15 @@
 package config
 
 import (
-	"fmt"
+	"errors"
 	"os"
 	"strings"
 )
+
+// ErrNoCredentials reports that no country has a full set of credentials
+// yet. That is the state a first-time user starts in rather than a failure,
+// so callers open the setup screen instead of giving up.
+var ErrNoCredentials = errors.New("no credentials have been entered yet")
 
 // Country holds a selectable country and its Investec API credentials.
 type Country struct {
@@ -74,7 +79,7 @@ func LoadCountries() ([]Country, error) {
 		}
 	}
 	if !configured {
-		return countries, fmt.Errorf("no credentials found in .env for any country in COUNTRY_LIST")
+		return countries, ErrNoCredentials
 	}
 
 	return countries, nil

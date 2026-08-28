@@ -24,24 +24,67 @@ type transactionsView struct {
 	editBuffer   string // current edit text
 }
 
-func newTransactionsView(account api.Account, currency, fromDate, toDate string) transactionsView {
-	return transactionsView{
+// Lines the view spends on everything that is not a transaction row: the app
+// frame's padding, the title, the date filter, the table header and its rule,
+// the footer and the help line. The pending view has no date filter.
+const (
+	transactionsChrome        = 13
+	pendingTransactionsChrome = 11
+
+	// minPageSize keeps the table usable in a window too short to fit a full
+	// page, accepting overflow rather than showing nothing.
+	minPageSize = 5
+)
+
+func newTransactionsView(account api.Account, currency, fromDate, toDate string, windowHeight int) transactionsView {
+	v := transactionsView{
 		account:  account,
 		currency: currency,
 		fromDate: fromDate,
 		toDate:   toDate,
-		pageSize: 20,
 		loading:  true,
 	}
+	v.fitTo(windowHeight)
+	return v
 }
 
-func newPendingTransactionsView(account api.Account, currency string) transactionsView {
-	return transactionsView{
+func newPendingTransactionsView(account api.Account, currency string, windowHeight int) transactionsView {
+	v := transactionsView{
 		account:  account,
 		currency: currency,
-		pageSize: 20,
 		loading:  true,
 		pending:  true,
+	}
+	v.fitTo(windowHeight)
+	return v
+}
+
+// fitTo sizes the page to the window.
+//
+// Windows consoles cannot be resized by the app, so the table has to adapt to
+// whatever the console opens at rather than assuming the 120x35 the macOS
+// build asks Terminal for.
+func (v *transactionsView) fitTo(windowHeight int) {
+	chrome := transactionsChrome
+	if v.pending {
+		chrome = pendingTransactionsChrome
+	}
+
+	size := windowHeight - chrome
+	if size < minPageSize {
+		size = minPageSize
+	}
+	v.pageSize = size
+
+	// A smaller page can leave the viewport scrolled past the cursor.
+	if v.cursor < v.offset {
+		v.offset = v.cursor
+	}
+	if v.cursor >= v.offset+v.pageSize {
+		v.offset = v.cursor - v.pageSize + 1
+	}
+	if v.offset < 0 {
+		v.offset = 0
 	}
 }
 
