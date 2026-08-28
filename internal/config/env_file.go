@@ -13,11 +13,15 @@ const EnvFileOverride = "INVESTEC_TUI_ENV"
 // ConfigDirName is the per-user folder the credentials file lives in.
 const ConfigDirName = "investec-tui"
 
+// PreferredEnvFileName is the name a credentials file gets when the app
+// creates one itself.
+const PreferredEnvFileName = "investec.env"
+
 // envFileNames are the accepted credentials file names, in order of
 // preference. "investec.env" comes first because a file literally named
 // ".env" is hidden in Finder and in Explorer's default view, which makes it
 // very hard for a non-technical user to put one in place.
-var envFileNames = []string{"investec.env", ".env"}
+var envFileNames = []string{PreferredEnvFileName, ".env"}
 
 // ConfigDir returns the per-user folder where the credentials file belongs:
 // ~/Library/Application Support/investec-tui on macOS and
