@@ -187,7 +187,8 @@ func (m Model) savePDF(accountID string, doc api.Document, path string) tea.Cmd 
 }
 
 func (m Model) saveCSV(path string) tea.Cmd {
-	txns := m.transactions.transactions
+	// Export what the user is looking at: the filtered list when searching.
+	txns := m.transactions.visibleTransactions()
 	currency := m.transactions.currency
 	return func() tea.Msg {
 		data, err := export.TransactionsToCSV(txns, currency)
@@ -452,24 +453,33 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.transactions.editing {
 			return m.handleTransactionEditing(msg)
 		}
+		if m.transactions.searching {
+			return m.handleTransactionSearch(msg)
+		}
 
 		switch key {
 		case "esc", "backspace":
+			if m.transactions.searchQuery != "" {
+				m.transactions.searchQuery = ""
+				m.transactions.cursor = 0
+				m.transactions.offset = 0
+				m.transactions.fitTo(m.height)
+				return m, nil
+			}
 			m.state = viewBalance
 		case "up", "k":
 			if m.transactions.cursor > 0 {
 				m.transactions.cursor--
-				if m.transactions.cursor < m.transactions.offset {
-					m.transactions.offset = m.transactions.cursor
-				}
+				m.transactions.clampOffset()
 			}
 		case "down", "j":
-			if m.transactions.cursor < len(m.transactions.transactions)-1 {
+			if m.transactions.cursor < len(m.transactions.visibleTransactions())-1 {
 				m.transactions.cursor++
-				if m.transactions.cursor >= m.transactions.offset+m.transactions.pageSize {
-					m.transactions.offset = m.transactions.cursor - m.transactions.pageSize + 1
-				}
+				m.transactions.clampOffset()
 			}
+		case "s":
+			m.transactions.searching = true
+			m.transactions.fitTo(m.height)
 		case "f":
 			if m.transactions.pending {
 				break
@@ -478,7 +488,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.transactions.editField = 0
 			m.transactions.editBuffer = m.transactions.fromDate
 		case "e":
-			if m.transactions.pending || m.transactions.loading || len(m.transactions.transactions) == 0 {
+			visible := m.transactions.visibleTransactions()
+			if m.transactions.pending || m.transactions.loading || len(visible) == 0 {
 				m.transactions.status = "Nothing to export."
 				break
 			}
@@ -488,6 +499,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "r":
 			m.transactions.loading = true
+			m.transactions.searchQuery = ""
+			m.transactions.searching = false
+			m.transactions.cursor = 0
+			m.transactions.offset = 0
 			acc := m.transactions.account
 			if m.transactions.pending {
 				return m, m.loadPendingTransactions(acc.AccountID.String())
@@ -572,6 +587,54 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) handleTransactionSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+
+	switch key {
+	case "ctrl+c":
+		return m, tea.Quit
+	case "esc":
+		m.transactions.searching = false
+		m.transactions.searchQuery = ""
+		m.transactions.cursor = 0
+		m.transactions.offset = 0
+		m.transactions.fitTo(m.height)
+	case "enter":
+		m.transactions.searching = false
+		m.transactions.fitTo(m.height)
+	case "backspace":
+		if len(m.transactions.searchQuery) > 0 {
+			// Drop the last rune, not the last byte, so multi-byte input is safe.
+			q := []rune(m.transactions.searchQuery)
+			m.transactions.searchQuery = string(q[:len(q)-1])
+			m.transactions.cursor = 0
+			m.transactions.offset = 0
+		} else {
+			m.transactions.searching = false
+			m.transactions.fitTo(m.height)
+		}
+	case "up":
+		if m.transactions.cursor > 0 {
+			m.transactions.cursor--
+			m.transactions.clampOffset()
+		}
+	case "down":
+		if m.transactions.cursor < len(m.transactions.visibleTransactions())-1 {
+			m.transactions.cursor++
+			m.transactions.clampOffset()
+		}
+	default:
+		// Accept printable single-rune keys (letters, digits, space, punctuation).
+		if len(key) == 1 && key[0] >= 32 && key[0] < 127 {
+			m.transactions.searchQuery += key
+			m.transactions.cursor = 0
+			m.transactions.offset = 0
+		}
+	}
+
+	return m, nil
+}
+
 func (m Model) handleAccountSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
@@ -638,8 +701,10 @@ func (m Model) handleTransactionEditing(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else {
 			m.transactions.toDate = m.transactions.editBuffer
 			m.transactions.editing = false
-			// Reload with new dates
+			// Reload with new dates; drop any active search against the old set.
 			m.transactions.loading = true
+			m.transactions.searchQuery = ""
+			m.transactions.searching = false
 			m.transactions.cursor = 0
 			m.transactions.offset = 0
 			acc := m.transactions.account
@@ -725,13 +790,16 @@ func (m Model) View() string {
 
 	case viewTransactions:
 		titleText := fmt.Sprintf("Transactions — %s", m.transactions.account.DisplayName())
-		help := helpStyle.Render("↑/↓ navigate  •  f filter dates  •  e export csv  •  r refresh  •  esc back")
+		help := helpStyle.Render("↑/↓ navigate  •  s search  •  f filter dates  •  e export csv  •  r refresh  •  esc back")
 		if m.transactions.pending {
 			titleText = fmt.Sprintf("Pending Transactions — %s", m.transactions.account.DisplayName())
-			help = helpStyle.Render("↑/↓ navigate  •  r refresh  •  esc back")
+			help = helpStyle.Render("↑/↓ navigate  •  s search  •  r refresh  •  esc back")
 		}
 		if m.transactions.editing {
 			help = helpStyle.Render("Type date (YYYY-MM-DD)  •  enter confirm  •  esc cancel")
+		}
+		if m.transactions.searching {
+			help = helpStyle.Render("Type to filter description/amount  •  ↑/↓ navigate  •  enter done  •  esc clear")
 		}
 		title := titleStyle.Render(titleText)
 		content = fmt.Sprintf("%s\n%s\n%s", title, m.transactions.render(), help)

@@ -219,10 +219,13 @@ Publishing a release is documented in [docs/releasing.md](docs/releasing.md).
 | Key       | Action                      |
 |-----------|-----------------------------|
 | ↑/↓ or k/j | Scroll transactions       |
+| s         | Search description / amount |
 | f         | Filter by date range        |
-| e         | Export loaded transactions to CSV |
+| e         | Export visible transactions to CSV |
 | r         | Refresh with current filter |
-| Esc       | Back to balance             |
+| Esc       | Clear search, or back to balance |
+
+Press `s` to search. Matching is case-insensitive and fuzzy on the description (or bank reference) and on the amount (spaces in thousands are ignored). Enter keeps the filter; Esc clears it. CSV export uses the filtered list when a search is active.
 
 When filtering dates, type in `YYYY-MM-DD` format. Press Enter to confirm each field (from → to), then transactions reload automatically.
 
