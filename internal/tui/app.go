@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"investec.openbanking.tui/internal/api"
 	"investec.openbanking.tui/internal/config"
+	"investec.openbanking.tui/internal/export"
 )
 
 // View states
@@ -18,7 +19,9 @@ const (
 	viewAccounts
 	viewBalance
 	viewTransactions
+	viewDocuments
 	viewSetup
+	viewSaveAs
 )
 
 // Messages for async operations
@@ -43,6 +46,17 @@ type transactionsLoadedMsg struct {
 	err          error
 }
 
+type documentsLoadedMsg struct {
+	documents []api.Document
+	err       error
+}
+
+type fileSavedMsg struct {
+	path string
+	kind saveAsKind
+	err  error
+}
+
 // setupCheckedMsg carries the result of trying each country's credentials
 // during setup.
 type setupCheckedMsg struct {
@@ -59,13 +73,19 @@ type Model struct {
 	client       *api.Client
 	country      config.Country
 	state        viewState
+	returnState  viewState // view under save-as overlay
 	countryList  countryView
 	accounts     accountsView
 	balance      balanceView
 	transactions transactionsView
+	documents    documentsView
+	saveAs       saveAsView
 	setup        setupView
-	width        int
-	height       int
+	lastSaveDir  string
+	// Pending document download target while save-as is open.
+	pendingDoc api.Document
+	width      int
+	height     int
 }
 
 // NewModel creates the initial app model, starting on the country landing page.
@@ -144,6 +164,50 @@ func (m Model) loadPendingTransactions(accountID string) tea.Cmd {
 	}
 }
 
+func (m Model) loadDocuments(accountID, fromDate, toDate string) tea.Cmd {
+	client := m.client
+	return func() tea.Msg {
+		docs, err := client.GetDocuments(accountID, fromDate, toDate)
+		return documentsLoadedMsg{documents: docs, err: err}
+	}
+}
+
+func (m Model) savePDF(accountID string, doc api.Document, path string) tea.Cmd {
+	client := m.client
+	return func() tea.Msg {
+		data, err := client.GetDocument(accountID, doc.DocumentType, doc.DocumentDate)
+		if err != nil {
+			return fileSavedMsg{kind: saveAsPDF, err: err}
+		}
+		if err := export.WriteFile(path, data); err != nil {
+			return fileSavedMsg{kind: saveAsPDF, path: path, err: err}
+		}
+		return fileSavedMsg{kind: saveAsPDF, path: path}
+	}
+}
+
+func (m Model) saveCSV(path string) tea.Cmd {
+	txns := m.transactions.transactions
+	currency := m.transactions.currency
+	return func() tea.Msg {
+		data, err := export.TransactionsToCSV(txns, currency)
+		if err != nil {
+			return fileSavedMsg{kind: saveAsCSV, err: err}
+		}
+		if err := export.WriteFile(path, data); err != nil {
+			return fileSavedMsg{kind: saveAsCSV, path: path, err: err}
+		}
+		return fileSavedMsg{kind: saveAsCSV, path: path}
+	}
+}
+
+func (m Model) openSaveAs(kind saveAsKind, accountNumber string) Model {
+	m.returnState = m.state
+	m.saveAs = newSaveAsView(kind, accountNumber, m.lastSaveDir, m.height)
+	m.state = viewSaveAs
+	return m
+}
+
 // Update handles messages and key events.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -155,6 +219,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Windows the app cannot change.
 		m.accounts.fitTo(msg.Height)
 		m.transactions.fitTo(msg.Height)
+		m.documents.fitTo(msg.Height)
+		m.saveAs.fitTo(msg.Height)
 		m.setup.fitTo(msg.Width)
 		return m, nil
 
@@ -188,6 +254,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.transactions.transactions = msg.transactions
 		m.transactions.err = msg.err
 		m.transactions.loading = false
+		return m, nil
+
+	case documentsLoadedMsg:
+		m.documents.documents = msg.documents
+		m.documents.err = msg.err
+		m.documents.loading = false
+		m.documents.cursor = 0
+		m.documents.offset = 0
+		return m, nil
+
+	case fileSavedMsg:
+		if msg.kind == saveAsPDF {
+			m.documents.saving = false
+			if msg.err != nil {
+				m.documents.status = fmt.Sprintf("Save failed: %v", msg.err)
+			} else {
+				m.documents.status = "Saved: " + msg.path
+			}
+			return m, nil
+		}
+		m.transactions.saving = false
+		if msg.err != nil {
+			m.transactions.status = fmt.Sprintf("Export failed: %v", msg.err)
+		} else {
+			m.transactions.status = "Saved: " + msg.path
+		}
 		return m, nil
 
 	case setupCheckedMsg:
@@ -342,6 +434,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.transactions = newPendingTransactionsView(acc, currency, m.height)
 			m.state = viewTransactions
 			return m, m.loadPendingTransactions(acc.AccountID.String())
+		case "d":
+			acc := m.balance.account
+			fromDate, toDate := api.DefaultDocumentDateRange()
+			m.documents = newDocumentsView(acc, fromDate, toDate, m.height)
+			m.state = viewDocuments
+			return m, m.loadDocuments(acc.AccountID.String(), fromDate, toDate)
 		case "r":
 			m.balance.loading = true
 			return m, m.loadBalance(m.balance.account.AccountID.String())
@@ -361,7 +459,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "up", "k":
 			if m.transactions.cursor > 0 {
 				m.transactions.cursor--
-				// Scroll up if needed
 				if m.transactions.cursor < m.transactions.offset {
 					m.transactions.offset = m.transactions.cursor
 				}
@@ -369,7 +466,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "down", "j":
 			if m.transactions.cursor < len(m.transactions.transactions)-1 {
 				m.transactions.cursor++
-				// Scroll down if needed
 				if m.transactions.cursor >= m.transactions.offset+m.transactions.pageSize {
 					m.transactions.offset = m.transactions.cursor - m.transactions.pageSize + 1
 				}
@@ -378,10 +474,18 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.transactions.pending {
 				break
 			}
-			// Start editing from-date
 			m.transactions.editing = true
 			m.transactions.editField = 0
 			m.transactions.editBuffer = m.transactions.fromDate
+		case "e":
+			if m.transactions.pending || m.transactions.loading || len(m.transactions.transactions) == 0 {
+				m.transactions.status = "Nothing to export."
+				break
+			}
+			m.transactions.status = ""
+			m.transactions.err = nil
+			m = m.openSaveAs(saveAsCSV, m.transactions.account.AccountNumber)
+			return m, nil
 		case "r":
 			m.transactions.loading = true
 			acc := m.transactions.account
@@ -392,6 +496,77 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "q", "ctrl+c":
 			m.state = viewBalance
 		}
+
+	// --- Documents view ---
+	case viewDocuments:
+		if m.documents.editing {
+			return m.handleDocumentEditing(msg)
+		}
+		switch key {
+		case "esc", "backspace":
+			m.state = viewBalance
+		case "up", "k":
+			if m.documents.cursor > 0 {
+				m.documents.cursor--
+				if m.documents.cursor < m.documents.offset {
+					m.documents.offset = m.documents.cursor
+				}
+			}
+		case "down", "j":
+			if m.documents.cursor < len(m.documents.documents)-1 {
+				m.documents.cursor++
+				if m.documents.cursor >= m.documents.offset+m.documents.pageSize {
+					m.documents.offset = m.documents.cursor - m.documents.pageSize + 1
+				}
+			}
+		case "f":
+			m.documents.editing = true
+			m.documents.editField = 0
+			m.documents.editBuffer = m.documents.fromDate
+		case "r":
+			m.documents.loading = true
+			m.documents.status = ""
+			acc := m.documents.account
+			return m, m.loadDocuments(acc.AccountID.String(), m.documents.fromDate, m.documents.toDate)
+		case "enter":
+			doc, ok := m.documents.selected()
+			if !ok || m.documents.loading || m.documents.saving {
+				return m, nil
+			}
+			m.pendingDoc = doc
+			m.documents.status = ""
+			m.documents.err = nil
+			m = m.openSaveAs(saveAsPDF, m.documents.account.AccountNumber)
+			return m, nil
+		case "q", "ctrl+c":
+			m.state = viewBalance
+		}
+
+	// --- Save-as overlay ---
+	case viewSaveAs:
+		updated, confirmed, cmd := m.saveAs.update(msg)
+		m.saveAs = updated
+		if !m.saveAs.active {
+			m.state = m.returnState
+			return m, nil
+		}
+		if confirmed {
+			path := m.saveAs.targetPath()
+			if m.saveAs.pending != "" {
+				path = m.saveAs.pending
+			}
+			m.saveAs.active = false
+			m.state = m.returnState
+			m.lastSaveDir = m.saveAs.dir
+			if m.saveAs.kind == saveAsPDF {
+				m.documents.saving = true
+				accID := m.documents.account.AccountID.String()
+				return m, m.savePDF(accID, m.pendingDoc, path)
+			}
+			m.transactions.saving = true
+			return m, m.saveCSV(path)
+		}
+		return m, cmd
 	}
 
 	return m, nil
@@ -486,6 +661,40 @@ func (m Model) handleTransactionEditing(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) handleDocumentEditing(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+
+	switch key {
+	case "enter":
+		if m.documents.editField == 0 {
+			m.documents.fromDate = m.documents.editBuffer
+			m.documents.editField = 1
+			m.documents.editBuffer = m.documents.toDate
+		} else {
+			m.documents.toDate = m.documents.editBuffer
+			m.documents.editing = false
+			m.documents.loading = true
+			m.documents.cursor = 0
+			m.documents.offset = 0
+			m.documents.status = ""
+			acc := m.documents.account
+			return m, m.loadDocuments(acc.AccountID.String(), m.documents.fromDate, m.documents.toDate)
+		}
+	case "esc":
+		m.documents.editing = false
+	case "backspace":
+		if len(m.documents.editBuffer) > 0 {
+			m.documents.editBuffer = m.documents.editBuffer[:len(m.documents.editBuffer)-1]
+		}
+	default:
+		if len(key) == 1 && (key[0] >= '0' && key[0] <= '9' || key[0] == '-') {
+			m.documents.editBuffer += key
+		}
+	}
+
+	return m, nil
+}
+
 // View renders the current state.
 func (m Model) View() string {
 	var content string
@@ -511,12 +720,12 @@ func (m Model) View() string {
 
 	case viewBalance:
 		title := titleStyle.Render(fmt.Sprintf("Account Balance — %s", m.country.Name))
-		help := helpStyle.Render("t transactions  •  p pending  •  r refresh  •  esc back")
+		help := helpStyle.Render("t transactions  •  p pending  •  d documents  •  r refresh  •  esc back")
 		content = fmt.Sprintf("%s\n%s\n%s", title, m.balance.render(), help)
 
 	case viewTransactions:
 		titleText := fmt.Sprintf("Transactions — %s", m.transactions.account.DisplayName())
-		help := helpStyle.Render("↑/↓ navigate  •  f filter dates  •  r refresh  •  esc back")
+		help := helpStyle.Render("↑/↓ navigate  •  f filter dates  •  e export csv  •  r refresh  •  esc back")
 		if m.transactions.pending {
 			titleText = fmt.Sprintf("Pending Transactions — %s", m.transactions.account.DisplayName())
 			help = helpStyle.Render("↑/↓ navigate  •  r refresh  •  esc back")
@@ -526,6 +735,19 @@ func (m Model) View() string {
 		}
 		title := titleStyle.Render(titleText)
 		content = fmt.Sprintf("%s\n%s\n%s", title, m.transactions.render(), help)
+
+	case viewDocuments:
+		title := titleStyle.Render(fmt.Sprintf("Documents — %s", m.documents.account.DisplayName()))
+		help := helpStyle.Render("↑/↓ navigate  •  enter download  •  f filter dates  •  r refresh  •  esc back")
+		if m.documents.editing {
+			help = helpStyle.Render("Type date (YYYY-MM-DD)  •  enter confirm  •  esc cancel")
+		}
+		content = fmt.Sprintf("%s\n%s\n%s", title, m.documents.render(), help)
+
+	case viewSaveAs:
+		title := titleStyle.Render("Save As")
+		help := helpStyle.Render(m.saveAs.help())
+		content = fmt.Sprintf("%s\n%s\n%s", title, m.saveAs.render(), help)
 	}
 
 	// Paint every cell of the window with the app's own background.

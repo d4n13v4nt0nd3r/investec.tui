@@ -209,6 +209,8 @@ Publishing a release is documented in [docs/releasing.md](docs/releasing.md).
 | Key   | Action             |
 |-------|--------------------|
 | t     | View transactions  |
+| p     | View pending transactions |
+| d     | View documents (statements / tax certificates) |
 | r     | Refresh balance    |
 | Esc   | Back to accounts   |
 
@@ -218,10 +220,36 @@ Publishing a release is documented in [docs/releasing.md](docs/releasing.md).
 |-----------|-----------------------------|
 | ↑/↓ or k/j | Scroll transactions       |
 | f         | Filter by date range        |
+| e         | Export loaded transactions to CSV |
 | r         | Refresh with current filter |
 | Esc       | Back to balance             |
 
 When filtering dates, type in `YYYY-MM-DD` format. Press Enter to confirm each field (from → to), then transactions reload automatically.
+
+### Documents View
+
+| Key       | Action                      |
+|-----------|-----------------------------|
+| ↑/↓ or k/j | Scroll documents          |
+| Enter     | Download selected PDF (save-as) |
+| f         | Filter by date range        |
+| r         | Refresh with current filter |
+| Esc       | Back to balance             |
+
+### Save As
+
+Opened from document download or CSV export. Default folder is Downloads; default filename is the account number.
+
+| Key       | Action                      |
+|-----------|-----------------------------|
+| Type      | Edit filename               |
+| Tab       | Switch between filename and folder list |
+| ↑/↓       | Browse folders              |
+| Enter     | Save (filename focused) or open folder |
+| y / n     | Confirm or cancel overwrite |
+| Esc       | Cancel                      |
+
+API keys need **View statements** / **View tax certificates** permissions for PDF downloads.
 
 ## API Endpoints Used
 
@@ -233,6 +261,8 @@ The country code selected on the landing page becomes the first path segment (`z
 | `GET /{country}/pb/v1/accounts` | List accounts |
 | `GET /{country}/pb/v1/accounts/{id}/balance` | Account balance |
 | `GET /{country}/pb/v1/accounts/{id}/transactions` | Transaction history |
+| `GET /{country}/pb/v1/accounts/{id}/documents` | List statements / tax certificates |
+| `GET /{country}/pb/v1/accounts/{id}/document/{type}/{date}` | Download a PDF document |
 
 Base URL: `https://openapi.investec.com`
 
@@ -255,6 +285,8 @@ MU requires an explicit `fromDate`/`toDate` on transactions, so the app defaults
 │   │   ├── config.go        # COUNTRY_LIST and per-country credentials
 │   │   ├── env_file.go      # Where the credentials file is looked for
 │   │   └── save.go          # Writing the credentials file back out
+│   ├── export/
+│   │   └── export.go        # CSV encoding and file path helpers
 │   ├── startup/
 │   │   ├── console.go       # Terminal detection, press-Enter pause
 │   │   ├── relaunch_*.go    # macOS: hand a double-clicked .app to Terminal
@@ -266,6 +298,8 @@ MU requires an explicit `fromDate`/`toDate` on transactions, so the app defaults
 │       ├── accounts.go      # Accounts list view
 │       ├── balance.go       # Balance detail view
 │       ├── transactions.go  # Transactions table view
+│       ├── documents.go     # Statement / tax certificate list
+│       ├── saveas.go        # Save-as filename + folder picker
 │       └── styles.go        # Styling and formatting
 ├── scripts/
 │   └── release.sh           # Build, sign, notarize and publish the packages

@@ -22,6 +22,8 @@ type transactionsView struct {
 	editing      bool   // true when editing date filter
 	editField    int    // 0 = fromDate, 1 = toDate
 	editBuffer   string // current edit text
+	status       string // last CSV export path or message
+	saving       bool
 }
 
 // Lines the view spends on everything that is not a transaction row: the app
@@ -118,6 +120,19 @@ func (v transactionsView) render() string {
 		filterLine := fmt.Sprintf("%s%s%s%s", fromLabel, fromVal, toLabel, toVal)
 		b.WriteString(normalRowStyle.Render(filterLine))
 		b.WriteString("\n\n")
+	}
+
+	if v.saving {
+		b.WriteString(loadingStyle.Render("Exporting CSV..."))
+		b.WriteString("\n")
+	}
+	if v.status != "" {
+		style := successStyle
+		if strings.HasPrefix(v.status, "Export failed") || strings.HasPrefix(v.status, "Nothing") {
+			style = errorStyle
+		}
+		b.WriteString(style.Render(v.status))
+		b.WriteString("\n")
 	}
 
 	if v.loading {
