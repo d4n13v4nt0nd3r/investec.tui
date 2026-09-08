@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 )
@@ -112,8 +113,17 @@ func (c *Client) ensureAuth() error {
 	return nil
 }
 
-// doGet performs an authenticated GET request.
+// doGet performs an authenticated GET request expecting a JSON body.
 func (c *Client) doGet(path string) ([]byte, error) {
+	return c.doGetWithAccept(path, "application/json")
+}
+
+// doGetBinary performs an authenticated GET expecting a binary body (PDF).
+func (c *Client) doGetBinary(path string) ([]byte, error) {
+	return c.doGetWithAccept(path, "application/pdf, application/octet-stream, */*")
+}
+
+func (c *Client) doGetWithAccept(path, accept string) ([]byte, error) {
 	if err := c.ensureAuth(); err != nil {
 		return nil, err
 	}
@@ -124,7 +134,7 @@ func (c *Client) doGet(path string) ([]byte, error) {
 	}
 
 	req.Header.Set("Authorization", "Bearer "+c.accessToken)
-	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Accept", accept)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -203,4 +213,70 @@ func (c *Client) GetTransactions(accountID, fromDate, toDate string) ([]Transact
 		return nil, fmt.Errorf("get transactions: %w", err)
 	}
 	return parseTransactions(body)
+}
+
+// defaultDocumentRangeDays is used when listing statements; monthly docs need
+// a longer window than the transactions default.
+const defaultDocumentRangeDays = 365
+
+// DefaultDocumentDateRange returns fromDate/toDate (YYYY-MM-DD) covering about
+// the last year of statements.
+func DefaultDocumentDateRange() (fromDate, toDate string) {
+	now := time.Now()
+	return now.AddDate(0, 0, -defaultDocumentRangeDays).Format("2006-01-02"), now.Format("2006-01-02")
+}
+
+// GetDocuments lists available PDF documents (statements, tax certificates)
+// for an account within a date range.
+func (c *Client) GetDocuments(accountID, fromDate, toDate string) ([]Document, error) {
+	if fromDate == "" || toDate == "" {
+		defaultFrom, defaultTo := DefaultDocumentDateRange()
+		if fromDate == "" {
+			fromDate = defaultFrom
+		}
+		if toDate == "" {
+			toDate = defaultTo
+		}
+	}
+
+	path := c.path(fmt.Sprintf("/accounts/%s/documents", accountID))
+	params := url.Values{}
+	params.Set("fromDate", fromDate)
+	params.Set("toDate", toDate)
+	path += "?" + params.Encode()
+
+	body, err := c.doGet(path)
+	if err != nil {
+		return nil, fmt.Errorf("get documents: %w", err)
+	}
+	docs, err := parseDocuments(body)
+	if err != nil {
+		return nil, err
+	}
+	sortDocumentsByDateDesc(docs)
+	return docs, nil
+}
+
+// sortDocumentsByDateDesc orders statements newest-first. ISO dates sort as strings.
+func sortDocumentsByDateDesc(docs []Document) {
+	sort.SliceStable(docs, func(i, j int) bool {
+		if docs[i].DocumentDate != docs[j].DocumentDate {
+			return docs[i].DocumentDate > docs[j].DocumentDate
+		}
+		return docs[i].DocumentType < docs[j].DocumentType
+	})
+}
+
+// GetDocument downloads a single document as raw bytes (PDF).
+func (c *Client) GetDocument(accountID, documentType, documentDate string) ([]byte, error) {
+	path := c.path(fmt.Sprintf("/accounts/%s/document/%s/%s",
+		url.PathEscape(accountID),
+		url.PathEscape(documentType),
+		url.PathEscape(documentDate),
+	))
+	body, err := c.doGetBinary(path)
+	if err != nil {
+		return nil, fmt.Errorf("get document: %w", err)
+	}
+	return body, nil
 }

@@ -24,7 +24,7 @@ Go TUI application for Investec Open Banking (Private Banking). Uses Bubble Tea 
 - `scripts/release.sh` — builds, signs, notarizes and publishes the Mac/Windows packages
 - `packaging/` — app icon artwork, the generated `.icns`/`.ico`, and the Python tools that build them. See `docs/releasing.md`; rebuild with `./icons`, which is only needed when the artwork changes.
 
-The app uses a single root `Model` in `app.go` that routes between five views: setup → country → accounts → balance → transactions. The API client is created (and authenticated) only after a country is selected.
+The app uses a single root `Model` in `app.go` that routes between views: setup → country → accounts → balance → transactions / documents, plus a save-as overlay for PDF/CSV downloads. The API client is created (and authenticated) only after a country is selected.
 
 `setup.go` is the guided credentials screen. It opens by itself when nothing is configured (`config.ErrNoCredentials`) and on `c` from the country page. Values are entered masked, checked against the API, then written by `config.SaveCountries`, which edits the existing file in place and never disturbs comments or settings it does not manage.
 
@@ -68,12 +68,14 @@ The selected country code is the first path segment (`za`, `mu`, ...).
 - `GET /{country}/pb/v1/accounts` — list accounts
 - `GET /{country}/pb/v1/accounts/{accountId}/balance` — account balance
 - `GET /{country}/pb/v1/accounts/{accountId}/transactions?fromDate=&toDate=` — transactions (ISO 8601 dates)
+- `GET /{country}/pb/v1/accounts/{accountId}/documents?fromDate=&toDate=` — list PDF documents
+- `GET /{country}/pb/v1/accounts/{accountId}/document/{documentType}/{documentDate}` — download PDF bytes
 
 ### Country differences
-- ZA: `data.accounts[]`, balance at `data`, `data.transactions[]`, string IDs, `type` = CREDIT/DEBIT, dates optional
-- MU: `data.accounts.accounts[]`, balance at `data.accounts.balance`, `data.accounts.transactions[]`, numeric IDs, `creditAmount`/`debitAmount`, `fromDate`/`toDate` required (defaults to last 90 days)
+- ZA: `data.accounts[]`, balance at `data`, `data.transactions[]`, documents at `data[]`, string IDs, `type` = CREDIT/DEBIT, dates optional
+- MU: `data.accounts.accounts[]`, balance at `data.accounts.balance`, `data.accounts.transactions[]`, documents at `availableDocuments.documentInformation[]`, numeric IDs, `creditAmount`/`debitAmount`, `fromDate`/`toDate` required (defaults to last 90 days)
 
-Parsing for both shapes lives in `internal/api/models.go` (`parseAccounts`, `parseBalance`, `parseTransactions`) and is covered by `internal/api/parse_test.go`.
+Parsing for both shapes lives in `internal/api/models.go` (`parseAccounts`, `parseBalance`, `parseTransactions`, `parseDocuments`) and is covered by `internal/api/parse_test.go`. CSV/path helpers live in `internal/export`.
 
 ## Build & Run
 
