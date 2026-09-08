@@ -9,6 +9,20 @@ import (
 	"investec.openbanking.tui/internal/api"
 )
 
+func TestDefaultDirUsesDownloads(t *testing.T) {
+	dir := DefaultDir()
+	if filepath.Base(dir) != "Downloads" && dir != "." {
+		// Only "." is acceptable when no home can be resolved at all.
+		t.Fatalf("DefaultDir base = %q (full %q), want Downloads", filepath.Base(dir), dir)
+	}
+	if dir != "." {
+		st, err := os.Stat(dir)
+		if err != nil || !st.IsDir() {
+			t.Fatalf("DefaultDir %q is not a usable directory: %v", dir, err)
+		}
+	}
+}
+
 func TestSanitizeFilename(t *testing.T) {
 	cases := []struct {
 		in, want string

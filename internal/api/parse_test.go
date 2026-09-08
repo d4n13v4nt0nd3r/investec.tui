@@ -292,3 +292,20 @@ func TestParseDocuments(t *testing.T) {
 		t.Fatalf("empty: got %+v", empty)
 	}
 }
+
+func TestSortDocumentsByDateDesc(t *testing.T) {
+	docs := []Document{
+		{DocumentType: "Statement", DocumentDate: "2025-10-01"},
+		{DocumentType: "Statement", DocumentDate: "2026-09-01"},
+		{DocumentType: "TaxCertificate", DocumentDate: "2026-09-01"},
+		{DocumentType: "Statement", DocumentDate: "2026-01-01"},
+	}
+	sortDocumentsByDateDesc(docs)
+	want := []string{"2026-09-01/Statement", "2026-09-01/TaxCertificate", "2026-01-01/Statement", "2025-10-01/Statement"}
+	for i, d := range docs {
+		got := d.DocumentDate + "/" + d.DocumentType
+		if got != want[i] {
+			t.Fatalf("index %d: got %s, want %s (full %+v)", i, got, want[i], docs)
+		}
+	}
+}

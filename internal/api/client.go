@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 )
@@ -248,7 +249,22 @@ func (c *Client) GetDocuments(accountID, fromDate, toDate string) ([]Document, e
 	if err != nil {
 		return nil, fmt.Errorf("get documents: %w", err)
 	}
-	return parseDocuments(body)
+	docs, err := parseDocuments(body)
+	if err != nil {
+		return nil, err
+	}
+	sortDocumentsByDateDesc(docs)
+	return docs, nil
+}
+
+// sortDocumentsByDateDesc orders statements newest-first. ISO dates sort as strings.
+func sortDocumentsByDateDesc(docs []Document) {
+	sort.SliceStable(docs, func(i, j int) bool {
+		if docs[i].DocumentDate != docs[j].DocumentDate {
+			return docs[i].DocumentDate > docs[j].DocumentDate
+		}
+		return docs[i].DocumentType < docs[j].DocumentType
+	})
 }
 
 // GetDocument downloads a single document as raw bytes (PDF).

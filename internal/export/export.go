@@ -12,17 +12,31 @@ import (
 	"investec.openbanking.tui/internal/api"
 )
 
-// DefaultDir returns the user's Downloads folder when it exists, otherwise home.
+// DefaultDir returns the user's Downloads folder on macOS and Windows
+// (~/Downloads or %USERPROFILE%\Downloads). Creates it when missing.
 func DefaultDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
+		// Windows shells sometimes leave UserHomeDir empty; USERPROFILE is reliable.
+		home = os.Getenv("USERPROFILE")
+	}
+	if home == "" {
+		home = os.Getenv("HOME")
+	}
+	if home == "" {
 		return "."
 	}
+
 	downloads := filepath.Join(home, "Downloads")
 	if st, err := os.Stat(downloads); err == nil && st.IsDir() {
 		return downloads
 	}
-	return home
+	// Prefer Downloads even when the folder is missing: create it rather than
+	// falling back to home so saves land in a predictable place on both OSes.
+	if err := os.MkdirAll(downloads, 0o700); err != nil {
+		return home
+	}
+	return downloads
 }
 
 // SanitizeFilename strips path separators and control characters from a name.
