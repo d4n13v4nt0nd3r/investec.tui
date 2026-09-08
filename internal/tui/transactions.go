@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"unicode"
 
 	"investec.openbanking.tui/internal/api"
 )
@@ -24,14 +25,18 @@ type transactionsView struct {
 	editBuffer   string // current edit text
 	status       string // last CSV export path or message
 	saving       bool
+	searching    bool   // true when the description/amount search box is active
+	searchQuery  string // text typed to filter transactions
 }
 
 // Lines the view spends on everything that is not a transaction row: the app
 // frame's padding, the title, the date filter, the table header and its rule,
-// the footer and the help line. The pending view has no date filter.
+// the footer and the help line. The pending view has no date filter. The
+// search box costs two more.
 const (
 	transactionsChrome        = 13
 	pendingTransactionsChrome = 11
+	transactionsSearchExtra   = 2
 
 	// minPageSize keeps the table usable in a window too short to fit a full
 	// page, accepting overflow rather than showing nothing.
@@ -71,14 +76,23 @@ func (v *transactionsView) fitTo(windowHeight int) {
 	if v.pending {
 		chrome = pendingTransactionsChrome
 	}
+	if v.searching || v.searchQuery != "" {
+		chrome += transactionsSearchExtra
+	}
 
 	size := windowHeight - chrome
 	if size < minPageSize {
 		size = minPageSize
 	}
 	v.pageSize = size
+	v.clampOffset()
+}
 
-	// A smaller page can leave the viewport scrolled past the cursor.
+// clampOffset keeps the cursor inside the visible page.
+func (v *transactionsView) clampOffset() {
+	if v.pageSize <= 0 {
+		v.pageSize = minPageSize
+	}
 	if v.cursor < v.offset {
 		v.offset = v.cursor
 	}
@@ -88,6 +102,116 @@ func (v *transactionsView) fitTo(windowHeight int) {
 	if v.offset < 0 {
 		v.offset = 0
 	}
+}
+
+// visibleTransactions returns transactions matching the current search query.
+// An empty query shows everything. Otherwise a transaction matches when the
+// query fuzzy-matches its description/reference or its amount.
+func (v transactionsView) visibleTransactions() []api.Transaction {
+	query := strings.TrimSpace(v.searchQuery)
+	if query == "" {
+		return v.transactions
+	}
+	filtered := make([]api.Transaction, 0, len(v.transactions))
+	for _, tx := range v.transactions {
+		if transactionMatchesQuery(tx, query) {
+			filtered = append(filtered, tx)
+		}
+	}
+	return filtered
+}
+
+// transactionMatchesQuery is true when query fuzzy-matches the description
+// (or bank reference) and/or the signed amount.
+func transactionMatchesQuery(tx api.Transaction, query string) bool {
+	if fuzzyMatch(query, tx.Detail()) {
+		return true
+	}
+	return amountMatchesQuery(tx.SignedAmount(), query)
+}
+
+// fuzzyMatch is a case-insensitive match: exact substring first, then a
+// subsequence match so typos like "wlmrt" still find "WALMART".
+func fuzzyMatch(query, target string) bool {
+	q := strings.ToLower(strings.TrimSpace(query))
+	if q == "" {
+		return true
+	}
+	t := strings.ToLower(target)
+	if strings.Contains(t, q) {
+		return true
+	}
+	return fuzzySubsequence(q, t)
+}
+
+// fuzzySubsequence is true when every rune in query appears in order in target.
+func fuzzySubsequence(query, target string) bool {
+	qr := []rune(query)
+	if len(qr) == 0 {
+		return true
+	}
+	i := 0
+	for _, r := range target {
+		if r == qr[i] {
+			i++
+			if i == len(qr) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// amountMatchesQuery matches against the display amount and a digit-only form
+// so "1234", "1 234", "234.56", and "-50" all work.
+func amountMatchesQuery(amount float64, query string) bool {
+	q := strings.TrimSpace(query)
+	if q == "" {
+		return true
+	}
+	display := FormatAmount(amount, "")
+	if fuzzyMatch(q, display) {
+		return true
+	}
+	// Also compare space-stripped and digit-normalized forms.
+	qNorm := normalizeAmountQuery(q)
+	if qNorm == "" {
+		return false
+	}
+	displayNorm := normalizeAmountQuery(display)
+	if strings.Contains(displayNorm, qNorm) {
+		return true
+	}
+	// Absolute value without sign, for queries that omit the leading minus.
+	absDisplay := normalizeAmountQuery(FormatAmount(absFloat(amount), ""))
+	return strings.Contains(absDisplay, qNorm)
+}
+
+func absFloat(v float64) float64 {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
+// normalizeAmountQuery keeps digits, one leading minus, and a decimal point,
+// dropping spaces and other separators the user might type or see on screen.
+func normalizeAmountQuery(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	seenDot := false
+	for _, r := range s {
+		switch {
+		case r == '-' && b.Len() == 0:
+			b.WriteRune(r)
+		case r == '.' && !seenDot:
+			seenDot = true
+			b.WriteRune(r)
+		case unicode.IsDigit(r):
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 func (v transactionsView) render() string {
@@ -122,6 +246,15 @@ func (v transactionsView) render() string {
 		b.WriteString("\n\n")
 	}
 
+	if v.searching || v.searchQuery != "" {
+		query := v.searchQuery
+		if v.searching {
+			query += "▎"
+		}
+		b.WriteString(normalRowStyle.Render(fmt.Sprintf("Search (description / amount): %s", query)))
+		b.WriteString("\n\n")
+	}
+
 	if v.saving {
 		b.WriteString(loadingStyle.Render("Exporting CSV..."))
 		b.WriteString("\n")
@@ -153,6 +286,12 @@ func (v transactionsView) render() string {
 		return b.String()
 	}
 
+	txns := v.visibleTransactions()
+	if len(txns) == 0 {
+		b.WriteString(loadingStyle.Render("No matching transactions."))
+		return b.String()
+	}
+
 	// Header
 	amountLabel := "Amount"
 	lastColLabel := "Balance"
@@ -168,16 +307,20 @@ func (v transactionsView) render() string {
 	b.WriteString(headerRowStyle.Render(header))
 	b.WriteString("\n")
 
-	// Determine visible range
-	end := v.offset + v.pageSize
-	if end > len(v.transactions) {
-		end = len(v.transactions)
+	// Determine visible range over the filtered list
+	start := v.offset
+	if start > len(txns) {
+		start = len(txns)
+	}
+	end := start + v.pageSize
+	if end > len(txns) {
+		end = len(txns)
 	}
 
 	// Amounts are always in the account's currency, so it's shown once in the
 	// column heading rather than repeated on every row.
-	visible := v.transactions[v.offset:end]
-	for i, tx := range visible {
+	page := txns[start:end]
+	for i, tx := range page {
 		amtStr := FormatAmount(tx.SignedAmount(), "")
 		lastCol := FormatAmount(tx.RunningBalance, "")
 		if v.pending {
@@ -192,7 +335,7 @@ func (v transactionsView) render() string {
 			lastCol,
 		)
 
-		globalIdx := v.offset + i
+		globalIdx := start + i
 		if globalIdx == v.cursor {
 			b.WriteString(selectedRowStyle.Render("> " + row[2:]))
 		} else {
@@ -207,7 +350,11 @@ func (v transactionsView) render() string {
 	if v.pending {
 		label = "pending transactions"
 	}
-	b.WriteString(mutedStyle(fmt.Sprintf("  Showing %d-%d of %d %s", v.offset+1, end, len(v.transactions), label)))
+	footer := fmt.Sprintf("  Showing %d-%d of %d %s", start+1, end, len(txns), label)
+	if v.searchQuery != "" && len(txns) != len(v.transactions) {
+		footer = fmt.Sprintf("  Showing %d-%d of %d matching (%d total)", start+1, end, len(txns), len(v.transactions))
+	}
+	b.WriteString(mutedStyle(footer))
 
 	return b.String()
 }
