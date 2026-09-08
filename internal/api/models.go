@@ -4,8 +4,19 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"html"
 	"strings"
 )
+
+// decodeEntities undoes the HTML entity escaping the Investec API applies to
+// free-text fields, e.g. "GINO&apos;S" for "GINO'S" and "M&amp;S" for "M&S".
+// Text that contains no entities is returned unchanged.
+func decodeEntities(s string) string {
+	if !strings.ContainsRune(s, '&') {
+		return s
+	}
+	return html.UnescapeString(s)
+}
 
 // --- Auth ---
 
@@ -120,7 +131,7 @@ func parseAccounts(body []byte) ([]Account, error) {
 		if err := json.Unmarshal(raw, &accounts); err != nil {
 			return nil, fmt.Errorf("decoding accounts: %w", err)
 		}
-		return accounts, nil
+		return unescapeAccounts(accounts), nil
 	}
 
 	var nested struct {
@@ -129,7 +140,18 @@ func parseAccounts(body []byte) ([]Account, error) {
 	if err := json.Unmarshal(raw, &nested); err != nil {
 		return nil, fmt.Errorf("decoding accounts: %w", err)
 	}
-	return nested.Accounts, nil
+	return unescapeAccounts(nested.Accounts), nil
+}
+
+// unescapeAccounts decodes the entity-escaped text fields on each account.
+func unescapeAccounts(accounts []Account) []Account {
+	for i := range accounts {
+		accounts[i].AccountName = decodeEntities(accounts[i].AccountName)
+		accounts[i].ReferenceName = decodeEntities(accounts[i].ReferenceName)
+		accounts[i].ProductName = decodeEntities(accounts[i].ProductName)
+		accounts[i].ProfileName = decodeEntities(accounts[i].ProfileName)
+	}
+	return accounts
 }
 
 // --- Balance ---
@@ -316,9 +338,52 @@ func parseTransactions(body []byte) ([]Transaction, error) {
 	}
 
 	if len(env.Data.Transactions) > 0 {
-		return env.Data.Transactions, nil
+		return unescapeTransactions(env.Data.Transactions), nil
 	}
-	return env.Data.Accounts.Transactions, nil
+	return unescapeTransactions(env.Data.Accounts.Transactions), nil
+}
+
+// unescapeTransactions decodes the entity-escaped text fields on each
+// transaction. Merchant descriptions are the usual offenders.
+func unescapeTransactions(txs []Transaction) []Transaction {
+	for i := range txs {
+		txs[i].Description = decodeEntities(txs[i].Description)
+		txs[i].BankReference = decodeEntities(txs[i].BankReference)
+		txs[i].TransactionType = decodeEntities(txs[i].TransactionType)
+	}
+	return txs
+}
+
+// --- Documents ---
+
+// Document is a statement or tax certificate available for download.
+type Document struct {
+	DocumentType string `json:"documentType"`
+	DocumentDate string `json:"documentDate"`
+}
+
+// parseDocuments handles both the ZA shape (data[]) and the MU shape
+// (availableDocuments.documentInformation[]).
+func parseDocuments(body []byte) ([]Document, error) {
+	var za struct {
+		Data []Document `json:"data"`
+	}
+	if err := json.Unmarshal(body, &za); err != nil {
+		return nil, fmt.Errorf("decoding documents: %w", err)
+	}
+	if za.Data != nil {
+		return za.Data, nil
+	}
+
+	var mu struct {
+		AvailableDocuments struct {
+			DocumentInformation []Document `json:"documentInformation"`
+		} `json:"availableDocuments"`
+	}
+	if err := json.Unmarshal(body, &mu); err != nil {
+		return nil, fmt.Errorf("decoding documents: %w", err)
+	}
+	return mu.AvailableDocuments.DocumentInformation, nil
 }
 
 // --- Common ---

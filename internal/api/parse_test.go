@@ -193,6 +193,32 @@ func TestParseTransactions(t *testing.T) {
 	}
 }
 
+// The API returns merchant names HTML-escaped, e.g. "GINO&apos;S".
+const escapedTransactionsBody = `{
+  "data": {
+    "transactions": [
+      {
+        "type": "DEBIT",
+        "description": "GINO&apos;S RESTAURANT &amp; BAR STELLENBOSCH ZA",
+        "transactionDate": "2026-09-04",
+        "amount": 499,
+        "runningBalance": 303069.73
+      }
+    ]
+  }
+}`
+
+func TestParseTransactionsUnescapesDescription(t *testing.T) {
+	txs, err := parseTransactions([]byte(escapedTransactionsBody))
+	if err != nil {
+		t.Fatalf("transactions: %v", err)
+	}
+	want := "GINO'S RESTAURANT & BAR STELLENBOSCH ZA"
+	if len(txs) != 1 || txs[0].Detail() != want {
+		t.Fatalf("description: got %q, want %q", txs[0].Detail(), want)
+	}
+}
+
 func TestClientPaths(t *testing.T) {
 	za := NewClient("id", "secret", "key", "ZA")
 	if got := za.path("/accounts"); got != "/za/pb/v1/accounts" {
@@ -208,5 +234,61 @@ func TestClientPaths(t *testing.T) {
 	}
 	if !mu.RequiresDateRange() {
 		t.Fatal("MU should require a date range")
+	}
+}
+
+const zaDocumentsBody = `{
+  "data": [
+    {
+      "documentType": "Statement",
+      "documentDate": "2024-01-31"
+    },
+    {
+      "documentType": "TaxCertificate",
+      "documentDate": "2024-02-28"
+    }
+  ],
+  "links": { "self": "https://openapi.investec.com/za/pb/v1/accounts/1/documents" },
+  "meta": { "totalPages": 1 }
+}`
+
+const muDocumentsBody = `{
+  "availableDocuments": {
+    "accountNumber": "0173123456500",
+    "documentInformation": [
+      {
+        "documentDate": "2025-01-31",
+        "documentType": "Statement"
+      }
+    ]
+  }
+}`
+
+func TestParseDocuments(t *testing.T) {
+	za, err := parseDocuments([]byte(zaDocumentsBody))
+	if err != nil {
+		t.Fatalf("ZA documents: %v", err)
+	}
+	if len(za) != 2 || za[0].DocumentType != "Statement" || za[0].DocumentDate != "2024-01-31" {
+		t.Fatalf("ZA documents: unexpected result %+v", za)
+	}
+	if za[1].DocumentType != "TaxCertificate" {
+		t.Fatalf("ZA second doc: %+v", za[1])
+	}
+
+	mu, err := parseDocuments([]byte(muDocumentsBody))
+	if err != nil {
+		t.Fatalf("MU documents: %v", err)
+	}
+	if len(mu) != 1 || mu[0].DocumentType != "Statement" || mu[0].DocumentDate != "2025-01-31" {
+		t.Fatalf("MU documents: unexpected result %+v", mu)
+	}
+
+	empty, err := parseDocuments([]byte(`{"data":[]}`))
+	if err != nil {
+		t.Fatalf("empty: %v", err)
+	}
+	if len(empty) != 0 {
+		t.Fatalf("empty: got %+v", empty)
 	}
 }
