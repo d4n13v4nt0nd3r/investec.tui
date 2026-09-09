@@ -15,14 +15,14 @@ not export it into GitHub secrets.
 | `InvestecTUI-<version>-Windows-ARM64.exe` | Windows on ARM | Unsigned, optional |
 | `SHA256SUMS.txt` | -- | Checksums for all of the above |
 
-The repository is internal, so release assets are only downloadable by signed-in
-BeamMoney org members.
+Releases are published to
+[d4n13v4nt0nd3r/investec.tui](https://github.com/d4n13v4nt0nd3r/investec.tui/releases).
+`scripts/release.sh` pins that repo on `gh release create`.
 
 ## Releasing without an Apple certificate
 
-This is where we are today: nobody on the team has been added to the company
-Apple Developer account yet, so there is no Developer ID certificate to sign
-with and nothing to notarize.
+This is where we are today: there is no Developer ID certificate configured yet,
+so there is nothing to notarize.
 
 ```bash
 ./release v1.0.0 --unsigned

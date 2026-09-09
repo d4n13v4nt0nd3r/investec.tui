@@ -17,7 +17,7 @@ cd "$(dirname "$0")/.."
 
 APP_NAME="InvestecTUI"          # deliberately no spaces: Terminal runs this path
 BINARY_NAME="investec-tui"
-BUNDLE_ID="com.beammoney.investec-tui"
+BUNDLE_ID="com.d4n13v4nt0nd3r.investec-tui"
 NOTARY_PROFILE="investec-tui-notary"
 DIST="dist"
 
@@ -305,6 +305,7 @@ fi
 
 step "Publishing the GitHub release"
 gh release create "$VERSION" "$DIST"/* \
+  -R d4n13v4nt0nd3r/investec.tui \
   --title "$APP_NAME $VERSION" \
   --notes "$NOTES"
 
