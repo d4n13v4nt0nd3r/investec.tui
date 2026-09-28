@@ -106,7 +106,7 @@ func NewModel(countries []config.Country) Model {
 		state:       viewCountry,
 		countryList: newCountryView(countries),
 	}
-	if omarchyLook {
+	if framedLook {
 		m.state = viewSplash
 		m.splash = newSplashView(countries)
 	}
@@ -170,9 +170,10 @@ func (m Model) loadBalance(accountID string) tea.Cmd {
 }
 
 // loadHistory fetches the last historyDays of transactions for the balance
-// screen. Only the Omarchy look draws them, so elsewhere nothing is fetched.
+// screen. Only the framed look draws them, so the classic one fetches
+// nothing.
 func (m Model) loadHistory(accountID string) tea.Cmd {
-	if !omarchyLook {
+	if !framedLook {
 		return nil
 	}
 	client := m.client
@@ -194,7 +195,7 @@ func (m Model) openBalance(acc api.Account) (tea.Model, tea.Cmd) {
 // layoutHeight is the window height the views size their tables against.
 // Their chrome counts are for the classic layout, and the frame uses less.
 func (m Model) layoutHeight() int {
-	if omarchyLook {
+	if framedLook {
 		return m.height + frameRowsSaved
 	}
 	return m.height
@@ -513,7 +514,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.loadDocuments(acc.AccountID.String(), fromDate, toDate)
 		case "r":
 			m.balance.loading = true
-			m.balance.historyLoading = omarchyLook
+			m.balance.historyLoading = framedLook
 			id := m.balance.account.AccountID.String()
 			return m, tea.Batch(m.loadBalance(id), m.loadHistory(id))
 		case "q", "ctrl+c":
@@ -833,7 +834,7 @@ func (m Model) handleDocumentEditing(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // arranges it.
 type screen struct {
 	title   string // the classic title bar
-	section string // the view's name on the Omarchy frame
+	section string // the view's name on the frame
 	context string // what the view is showing, at the frame's top right
 	body    string
 	help    string
@@ -885,7 +886,7 @@ func (m Model) screen() screen {
 
 	case viewBalance:
 		body := m.balance.render()
-		if omarchyLook {
+		if framedLook {
 			body = m.balance.renderFramed(m.width-2*appHPadding, m.height-frameChromeRows-m.bannerRoom(), time.Now())
 		}
 		acc := m.balance.account
@@ -962,7 +963,7 @@ func accountContext(acc api.Account) string {
 func (m Model) View() string {
 	s := m.screen()
 
-	if omarchyLook && m.width > 0 && m.height > 0 {
+	if framedLook && m.width > 0 && m.height > 0 {
 		body := s.body
 		if s.banner && m.bannerRoom() > 0 {
 			body = withBanner(body, m.height-frameChromeRows)

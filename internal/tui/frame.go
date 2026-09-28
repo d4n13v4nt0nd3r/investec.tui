@@ -24,9 +24,6 @@ const frameChromeRows = 4
 // full width. The rest of the line is the divider's title.
 const frameDivider = "\x1f"
 
-// brandGlyph is the Nerd Font bank icon (nf-md-bank) shown on the top border.
-const brandGlyph = "\U000F0070"
-
 // frame is what goes on the border around a view.
 type frame struct {
 	section string // the view's name, after the brand on the top border
@@ -46,7 +43,9 @@ func renderFrame(f frame, body string, width, height int) string {
 		return body
 	}
 
-	title := frameTitleStyle.Render(brandGlyph+" investec") + hintStyle.Render(" · ") + frameTitleStyle.Render(f.section)
+	// The brand mark brings its own trailing space, so a glyph set without
+	// one leaves no gap behind.
+	title := frameTitleStyle.Render(glyphs.brand+"investec") + hintStyle.Render(" · ") + frameTitleStyle.Render(f.section)
 	var context string
 	if f.context != "" {
 		context = hintStyle.Render(f.context)

@@ -17,10 +17,6 @@ var (
 	// themeModTime is when themeFile had last changed as of loading it, so
 	// the first check does not reload what is already applied.
 	themeModTime time.Time
-	// omarchyLook swaps the title bar and help line for a btop-style frame,
-	// with Nerd Font glyphs. Omarchy ships a Nerd Font in every terminal;
-	// elsewhere the glyphs would draw as boxes, so the classic layout stays.
-	omarchyLook bool
 )
 
 // themePollInterval is how often the theme file is checked for a change. A
@@ -34,10 +30,11 @@ type themeCheckedMsg struct {
 	modTime time.Time
 }
 
-// UseSystemTheme switches the styles to the desktop's colour theme when there
-// is one. Today that is Omarchy's, on Linux; elsewhere the app keeps its own
-// palette. It reports whether a theme was found.
-func UseSystemTheme() bool {
+// useDesktopTheme switches the styles to the desktop's colour theme when
+// there is one, and starts following it. Today that is Omarchy's, on Linux;
+// elsewhere there is no such thing and the caller falls back to the
+// terminal's own colours. It reports whether a theme was found.
+func useDesktopTheme() bool {
 	path := omarchyThemeFile()
 	if path == "" {
 		return false
@@ -49,7 +46,6 @@ func UseSystemTheme() bool {
 	applyPalette(*msg.p)
 	themeFile = path
 	themeModTime = msg.modTime
-	omarchyLook = true
 	return true
 }
 

@@ -16,7 +16,7 @@ type balanceView struct {
 	loading     bool
 	countryCode string // ISO country code, e.g. "ZA"
 
-	// The Omarchy look also shows the last historyDays of transactions, as a
+	// The framed look also shows the last historyDays of transactions, as a
 	// sparkline of the balance and a list of the most recent.
 	history        []api.Transaction
 	historyErr     error
@@ -31,7 +31,7 @@ func newBalanceView(account api.Account, countryCode string) balanceView {
 		account:        account,
 		loading:        true,
 		countryCode:    countryCode,
-		historyLoading: omarchyLook,
+		historyLoading: framedLook,
 	}
 }
 
@@ -94,7 +94,7 @@ func (v balanceView) render() string {
 	return b.String()
 }
 
-// renderFramed is the balance screen in the Omarchy look: the headline
+// renderFramed is the balance screen in the framed look: the headline
 // balance in big digits, its 90-day trend, the other figures, and as many of
 // the latest transactions as fit the rows left under a divider.
 func (v balanceView) renderFramed(width, rows int, today time.Time) string {

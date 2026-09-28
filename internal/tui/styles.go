@@ -73,7 +73,7 @@ var (
 	errorStyle       lipgloss.Style
 	loadingStyle     lipgloss.Style
 
-	// The Omarchy frame
+	// The frame
 	frameBorderStyle  lipgloss.Style
 	frameTitleStyle   lipgloss.Style
 	legendKeyStyle    lipgloss.Style
@@ -164,8 +164,8 @@ func applyPalette(p palette) {
 		Background(p.bg).
 		Italic(true)
 
-	// The Omarchy frame. The border takes the accent, as Hyprland does for
-	// the active window.
+	// The frame. The border takes the accent, the way Hyprland paints the
+	// active window on Omarchy.
 	frameBorderStyle = lipgloss.NewStyle().
 		Foreground(p.primary).
 		Background(p.bg)
@@ -193,7 +193,7 @@ func applyPalette(p palette) {
 // leading spaces for the cursor mark to replace.
 func selectedRow(row string) string {
 	row = strings.TrimPrefix(row, "  ")
-	if omarchyLook {
+	if framedLook {
 		return selectedMarkStyle.Render("▌") + selectedRowStyle.Render(" "+row)
 	}
 	return selectedRowStyle.Render("> " + row)

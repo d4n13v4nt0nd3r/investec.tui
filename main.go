@@ -72,8 +72,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	// On Omarchy the app wears the desktop's theme; elsewhere its own colours.
-	tui.UseSystemTheme()
+	// Settle the layout, the colours and the icons before Bubble Tea takes
+	// the terminal, because reading the terminal's own colours means asking
+	// it and waiting for the reply.
+	tui.UseSystemLook(startup.IsTerminal())
 
 	// Nothing configured yet, so the app opens on the guided setup screen
 	// rather than telling the user to go and write a file.

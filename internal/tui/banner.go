@@ -38,7 +38,7 @@ const minBannerBodyRows = 12
 // bannerRoom is how many rows the compact banner takes from the body of a
 // framed view, or 0 when the window is too short to spare them.
 func (m Model) bannerRoom() int {
-	if !omarchyLook || m.height-frameChromeRows-compactBannerRows < minBannerBodyRows {
+	if !framedLook || m.height-frameChromeRows-compactBannerRows < minBannerBodyRows {
 		return 0
 	}
 	return compactBannerRows

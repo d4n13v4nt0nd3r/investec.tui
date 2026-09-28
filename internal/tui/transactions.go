@@ -337,7 +337,7 @@ func (v transactionsView) render() string {
 		)
 
 		globalIdx := start + i
-		if omarchyLook {
+		if framedLook {
 			b.WriteString(transactionRow(tx, lastCol, globalIdx == v.cursor))
 		} else if globalIdx == v.cursor {
 			b.WriteString(selectedRow(row))
@@ -366,14 +366,7 @@ func mutedStyle(s string) string {
 	return helpStyle.Render(s)
 }
 
-// Nerd Font arrows (nf-md-arrow_down, nf-md-arrow_up) for money coming into
-// the account and going out of it.
-const (
-	arrowIn  = "\U000F0045"
-	arrowOut = "\U000F005D"
-)
-
-// transactionRow is a table row in the Omarchy look. It keeps the classic
+// transactionRow is a table row in the framed look. It keeps the classic
 // columns, but the type becomes an arrow and the amount carries a sign, both
 // coloured by which way the money went.
 func transactionRow(tx api.Transaction, lastCol string, selected bool) string {
@@ -393,13 +386,14 @@ func transactionRow(tx api.Transaction, lastCol string, selected bool) string {
 		base.Render(fmt.Sprintf(" %15s", lastCol))
 }
 
-// flowLabel is the type column in the Omarchy look.
+// flowLabel is the type column in the framed look. Both glyph sets use a
+// single-cell arrow, so the column lines up either way.
 func flowLabel(tx api.Transaction) string {
 	switch tx.Kind() {
 	case "CREDIT":
-		return arrowIn + " in"
+		return glyphs.in + " in"
 	case "DEBIT":
-		return arrowOut + " out"
+		return glyphs.out + " out"
 	}
 	return ""
 }
