@@ -136,6 +136,27 @@ git pull
 
 `./run` rebuilds before launching. Your credentials file is gitignored and is not touched by `git pull`.
 
+## Look and colours
+
+On macOS, Windows and Linux alike, the app draws itself in a rounded frame instead of a title bar:
+
+- The view name sits on the top edge, the account on the right, and the keys on the bottom edge.
+- It opens on a welcome page, and the views are topped with a small wordmark.
+- The balance screen shows the headline figure in big digits, a 90-day sparkline and your latest transactions. That costs one extra transactions request per account you open.
+- Money in and out get arrows, signs, and green and red.
+
+Colours come from your terminal. The app leaves the text and background to it, so the window keeps whatever theme, transparency or blur you have set, and uses your terminal's own blue, green and red for the rest. On [Omarchy](https://omarchy.org) it goes further and reads the active theme (`~/.local/state/omarchy/current/theme/colors.toml`), following along within a couple of seconds when you switch theme.
+
+The frame's bank icon and the transaction arrows are [Nerd Font](https://www.nerdfonts.com) glyphs. The app looks for a patched font among your installed fonts and falls back to plain `↑` / `↓` arrows and no icon when it does not find one.
+
+Three environment variables override all of that:
+
+| Variable | Values | Effect |
+|----------|--------|--------|
+| `INVESTEC_TUI_LOOK` | `framed` (default), `classic` | `classic` brings back the old title bar and help line |
+| `INVESTEC_TUI_THEME` | `terminal` (default), `app` | `app` paints the app's own dark palette, ignoring your terminal's |
+| `INVESTEC_TUI_GLYPHS` | `nerd`, `plain` | Forces the icon set instead of guessing from your fonts |
+
 ## Linux and Omarchy
 
 Build from source with `./run`, or install it for your user:
@@ -146,12 +167,9 @@ Build from source with `./run`, or install it for your user:
 
 That links `investec-tui` into `~/.local/bin` (so `./run` keeps it current), installs the icon, and adds an **Investec** desktop entry for your app launcher.
 
-On [Omarchy](https://omarchy.org) the app matches the desktop:
+On Omarchy the app also fits into the desktop:
 
-- Colours come from the active theme (`~/.local/state/omarchy/current/theme/colors.toml`) and follow along within a couple of seconds when you switch. The background is left to the terminal, so transparency and blur show through.
-- A rounded frame in the theme's accent replaces the title bar, with the view name on the top edge and the keys on the bottom one.
-- The balance screen shows the headline figure in big digits, a 90-day sparkline, and your latest transactions. This costs one extra transactions request per account you open.
-- Money in and out get arrows, signs and the theme's green and red.
+- The frame takes the theme's accent, the way Hyprland paints the active window.
 - The desktop entry launches through `omarchy-launch-or-focus-tui`, so it opens in the themed terminal and pressing it again focuses the open window.
 - The install script adds a window rule to `~/.config/hypr/hyprland.lua`, so the window floats, centred, at Omarchy's standard floating size, like btop. It is only added once; delete the line to tile the window instead.
 
@@ -160,8 +178,6 @@ To bind a key, add to `~/.config/hypr/bindings.lua`:
 ```lua
 o.bind("SUPER + SHIFT + I", "Investec", { tui = "investec-tui", focus = true })
 ```
-
-Without Omarchy the app keeps its own colours and the classic layout, as on macOS and Windows.
 
 ## Troubleshooting
 
