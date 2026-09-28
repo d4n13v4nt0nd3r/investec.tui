@@ -5,6 +5,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/charmbracelet/lipgloss"
 	"investec.openbanking.tui/internal/api"
 )
 
@@ -336,8 +337,10 @@ func (v transactionsView) render() string {
 		)
 
 		globalIdx := start + i
-		if globalIdx == v.cursor {
-			b.WriteString(selectedRowStyle.Render("> " + row[2:]))
+		if omarchyLook {
+			b.WriteString(transactionRow(tx, lastCol, globalIdx == v.cursor))
+		} else if globalIdx == v.cursor {
+			b.WriteString(selectedRow(row))
 		} else {
 			b.WriteString(normalRowStyle.Render(row))
 		}
@@ -361,4 +364,62 @@ func (v transactionsView) render() string {
 
 func mutedStyle(s string) string {
 	return helpStyle.Render(s)
+}
+
+// Nerd Font arrows (nf-md-arrow_down, nf-md-arrow_up) for money coming into
+// the account and going out of it.
+const (
+	arrowIn  = "\U000F0045"
+	arrowOut = "\U000F005D"
+)
+
+// transactionRow is a table row in the Omarchy look. It keeps the classic
+// columns, but the type becomes an arrow and the amount carries a sign, both
+// coloured by which way the money went.
+func transactionRow(tx api.Transaction, lastCol string, selected bool) string {
+	base, mark := normalRowStyle, normalRowStyle.Render("  ")
+	if selected {
+		base = selectedRowStyle
+		mark = selectedMarkStyle.Render("▌") + base.Render(" ")
+	}
+	amount := tx.SignedAmount()
+	flow := flowStyle(base, amount)
+
+	return mark +
+		base.Render(fmt.Sprintf("%-12s ", tx.Date())) +
+		flow.Render(fmt.Sprintf("%-7s", flowLabel(tx))) +
+		base.Render(fmt.Sprintf(" %-52s ", truncate(tx.Detail(), 50))) +
+		flow.Render(fmt.Sprintf("%15s", signedAmount(amount))) +
+		base.Render(fmt.Sprintf(" %15s", lastCol))
+}
+
+// flowLabel is the type column in the Omarchy look.
+func flowLabel(tx api.Transaction) string {
+	switch tx.Kind() {
+	case "CREDIT":
+		return arrowIn + " in"
+	case "DEBIT":
+		return arrowOut + " out"
+	}
+	return ""
+}
+
+// flowStyle colours an amount by direction, on the row's own background.
+func flowStyle(base lipgloss.Style, amount float64) lipgloss.Style {
+	switch {
+	case amount > 0:
+		return base.Foreground(activePalette.credit)
+	case amount < 0:
+		return base.Foreground(activePalette.debit)
+	}
+	return base
+}
+
+// signedAmount formats an amount with a sign on credits as well as debits.
+func signedAmount(amount float64) string {
+	s := FormatAmount(amount, "")
+	if amount > 0 {
+		return "+" + s
+	}
+	return s
 }

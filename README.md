@@ -96,6 +96,7 @@ The first run opens a setup screen:
 |--------|----------------------|
 | macOS | `~/Library/Application Support/investec-tui/investec.env` |
 | Windows | `%APPDATA%\investec-tui\investec.env` |
+| Linux | `~/.config/investec-tui/investec.env` |
 
 Press `c` on the country page later to change or add keys.
 
@@ -134,6 +135,33 @@ git pull
 ```
 
 `./run` rebuilds before launching. Your credentials file is gitignored and is not touched by `git pull`.
+
+## Linux and Omarchy
+
+Build from source with `./run`, or install it for your user:
+
+```bash
+./scripts/install-linux.sh
+```
+
+That links `investec-tui` into `~/.local/bin` (so `./run` keeps it current), installs the icon, and adds an **Investec** desktop entry for your app launcher.
+
+On [Omarchy](https://omarchy.org) the app matches the desktop:
+
+- Colours come from the active theme (`~/.local/state/omarchy/current/theme/colors.toml`) and follow along within a couple of seconds when you switch. The background is left to the terminal, so transparency and blur show through.
+- A rounded frame in the theme's accent replaces the title bar, with the view name on the top edge and the keys on the bottom one.
+- The balance screen shows the headline figure in big digits, a 90-day sparkline, and your latest transactions. This costs one extra transactions request per account you open.
+- Money in and out get arrows, signs and the theme's green and red.
+- The desktop entry launches through `omarchy-launch-or-focus-tui`, so it opens in the themed terminal and pressing it again focuses the open window.
+- The install script adds a window rule to `~/.config/hypr/hyprland.lua`, so the window floats, centred, at Omarchy's standard floating size, like btop. It is only added once; delete the line to tile the window instead.
+
+To bind a key, add to `~/.config/hypr/bindings.lua`:
+
+```lua
+o.bind("SUPER + SHIFT + I", "Investec", { tui = "investec-tui", focus = true })
+```
+
+Without Omarchy the app keeps its own colours and the classic layout, as on macOS and Windows.
 
 ## Troubleshooting
 
