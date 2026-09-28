@@ -123,7 +123,15 @@ lipo -info "$DIST/bin/$BINARY_NAME-universal"
 # ------------------------------------------------------------ app bundle ----
 
 step "Assembling $APP_NAME.app"
-APP="$DIST/stage/$APP_NAME.app"
+
+# The bundle is staged outside the repository, because a checkout inside a
+# synced folder (iCloud Drive, Dropbox) has its files handed extended
+# attributes again as soon as they are cleared -- and codesign refuses to
+# seal a bundle carrying any, with "resource fork, Finder information, or
+# similar detritus not allowed". Nothing watches a temp folder.
+STAGE="$(mktemp -d)"
+trap 'rm -rf "$STAGE"' EXIT
+APP="$STAGE/$APP_NAME.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$DIST/bin/$BINARY_NAME-universal" "$APP/Contents/MacOS/$BINARY_NAME"
 chmod +x "$APP/Contents/MacOS/$BINARY_NAME"
@@ -163,10 +171,8 @@ cat > "$APP/Contents/Info.plist" <<EOF
 </plist>
 EOF
 
-# A repository inside a synced folder (iCloud Drive, Dropbox) hands its files
-# extended attributes, and the staged copy inherits them. codesign refuses to
-# seal a bundle carrying any, with "resource fork, Finder information, or
-# similar detritus not allowed". Only the staged copy is touched.
+# cp carries the attributes of the copied-in binary across, so the staged
+# bundle is cleared before it is sealed. Only the staged copy is touched.
 xattr -cr "$APP"
 
 if [[ -n "$IDENTITY" ]]; then
@@ -192,7 +198,7 @@ fi
 
 step "Building the disk image"
 DMG="$DIST/$APP_NAME-$VERSION.dmg"
-ln -s /Applications "$DIST/stage/Applications"
+ln -s /Applications "$STAGE/Applications"
 
 if [[ -f "packaging/macos/AppIcon.icns" ]]; then
   # The volume's custom-icon flag has to be set on the mounted HFS+ volume
@@ -209,7 +215,7 @@ if [[ -f "packaging/macos/AppIcon.icns" ]]; then
   RW_DMG="$DIST/.rw.dmg"
   hdiutil create \
     -volname "$APP_NAME $VERSION" \
-    -srcfolder "$DIST/stage" \
+    -srcfolder "$STAGE" \
     -fs HFS+ -format UDRW -ov -quiet \
     "$RW_DMG"
 
@@ -233,12 +239,15 @@ else
   xattr -cr "$APP"
   hdiutil create \
     -volname "$APP_NAME $VERSION" \
-    -srcfolder "$DIST/stage" \
+    -srcfolder "$STAGE" \
     -fs HFS+ -format UDZO -ov -quiet \
     "$DMG"
 fi
 
 if [[ -n "$IDENTITY" ]]; then
+  # The image is written into the checkout, so it picks up the sync daemon's
+  # attributes the same way the bundle would.
+  xattr -c "$DMG"
   codesign --force --timestamp --sign "$IDENTITY" "$DMG"
 fi
 
@@ -271,7 +280,7 @@ fi
 # -------------------------------------------------------------- checksums ---
 
 step "Writing checksums"
-rm -rf "$DIST/stage" "$DIST/bin"
+rm -rf "$STAGE" "$DIST/bin"
 (cd "$DIST" && shasum -a 256 *.dmg *.exe > SHA256SUMS.txt)
 cat "$DIST/SHA256SUMS.txt"
 
