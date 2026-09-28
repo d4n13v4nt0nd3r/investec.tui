@@ -135,16 +135,7 @@ func newCredentialInput() textinput.Model {
 	input.EchoMode = textinput.EchoPassword
 	input.EchoCharacter = '•'
 	input.Prompt = "  "
-
-	// Every style has to carry both colours. The app paints its own
-	// background, so a run left unstyled shows the terminal profile's
-	// through instead -- including the blank space the input pads itself
-	// out with.
-	input.PromptStyle = normalRowStyle
-	input.TextStyle = normalRowStyle
-	input.PlaceholderStyle = hintStyle
-	input.Cursor.Style = normalRowStyle
-	input.Cursor.TextStyle = normalRowStyle
+	styleInput(&input)
 
 	// A blinking cursor would need its timer messages routed through the
 	// root model on every tick, which buys nothing on a form.
@@ -498,6 +489,14 @@ func (v setupView) title() string {
 	return fmt.Sprintf("Investec Open Banking — Setup (step %d of %d)", int(v.step)+1, setupSteps)
 }
 
+// progress is the step counter the Omarchy frame shows.
+func (v setupView) progress() string {
+	if v.step == setupDone {
+		return "complete"
+	}
+	return fmt.Sprintf("step %d of %d", int(v.step)+1, setupSteps)
+}
+
 // help is the key hint line for the current step.
 func (v setupView) help() string {
 	switch v.step {
@@ -581,7 +580,7 @@ func (v setupView) renderCountries() string {
 
 		row := fmt.Sprintf("  %s %-24s %-6s %s", box, truncate(choice.country.Name, 22), choice.country.Code, status)
 		if i == v.cursor {
-			lines = append(lines, selectedRowStyle.Render("> "+row[2:]))
+			lines = append(lines, selectedRow(row))
 		} else {
 			lines = append(lines, normalRowStyle.Render(row))
 		}

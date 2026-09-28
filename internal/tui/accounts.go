@@ -157,7 +157,7 @@ func (v accountsView) renderTable() string {
 			)
 
 			if start+i == v.cursor {
-				b.WriteString(selectedRowStyle.Render("> " + row[2:]))
+				b.WriteString(selectedRow(row))
 			} else {
 				b.WriteString(normalRowStyle.Render(row))
 			}
@@ -176,7 +176,7 @@ func (v accountsView) renderTable() string {
 			)
 
 			if start+i == v.cursor {
-				b.WriteString(selectedRowStyle.Render("> " + row[2:]))
+				b.WriteString(selectedRow(row))
 			} else {
 				b.WriteString(normalRowStyle.Render(row))
 			}

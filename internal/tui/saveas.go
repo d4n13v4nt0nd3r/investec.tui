@@ -59,11 +59,7 @@ func newSaveAsView(kind saveAsKind, accountNumber, startDir string, windowHeight
 
 	input := textinput.New()
 	input.Prompt = "  "
-	input.PromptStyle = normalRowStyle
-	input.TextStyle = normalRowStyle
-	input.PlaceholderStyle = hintStyle
-	input.Cursor.Style = normalRowStyle
-	input.Cursor.TextStyle = normalRowStyle
+	styleInput(&input)
 	input.Cursor.SetMode(cursor.CursorStatic)
 	input.SetValue(export.DefaultFilename(accountNumber, ext))
 	input.Focus()
@@ -250,7 +246,7 @@ func (v saveAsView) render() string {
 			label = "  " + name + "/"
 		}
 		if v.focus == saveFocusFolder && globalIdx == v.cursor {
-			b.WriteString(selectedRowStyle.Render("> " + strings.TrimPrefix(label, "  ")))
+			b.WriteString(selectedRow(label))
 		} else {
 			b.WriteString(normalRowStyle.Render(label))
 		}

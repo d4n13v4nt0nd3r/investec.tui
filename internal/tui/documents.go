@@ -124,7 +124,7 @@ func (v documentsView) render() string {
 		row := fmt.Sprintf("  %-16s  %s", doc.DocumentDate, doc.DocumentType)
 		globalIdx := v.offset + i
 		if globalIdx == v.cursor {
-			b.WriteString(selectedRowStyle.Render("> " + row[2:]))
+			b.WriteString(selectedRow(row))
 		} else {
 			b.WriteString(normalRowStyle.Render(row))
 		}

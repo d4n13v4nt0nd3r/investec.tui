@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
@@ -22,6 +23,7 @@ const (
 	viewDocuments
 	viewSetup
 	viewSaveAs
+	viewSplash
 )
 
 // Messages for async operations
@@ -39,6 +41,14 @@ type accountsLoadedMsg struct {
 type balanceLoadedMsg struct {
 	balance *api.Balance
 	err     error
+}
+
+// historyLoadedMsg carries the transactions behind the balance screen's
+// sparkline, for the account they were fetched for.
+type historyLoadedMsg struct {
+	accountID    string
+	transactions []api.Transaction
+	err          error
 }
 
 type transactionsLoadedMsg struct {
@@ -81,6 +91,7 @@ type Model struct {
 	documents    documentsView
 	saveAs       saveAsView
 	setup        setupView
+	splash       splashView
 	lastSaveDir  string
 	// Pending document download target while save-as is open.
 	pendingDoc api.Document
@@ -88,12 +99,18 @@ type Model struct {
 	height     int
 }
 
-// NewModel creates the initial app model, starting on the country landing page.
+// NewModel creates the initial app model. The framed layout opens on the
+// splash page; the classic one goes straight to the country landing page.
 func NewModel(countries []config.Country) Model {
-	return Model{
+	m := Model{
 		state:       viewCountry,
 		countryList: newCountryView(countries),
 	}
+	if omarchyLook {
+		m.state = viewSplash
+		m.splash = newSplashView(countries)
+	}
+	return m
 }
 
 // NewSetupModel starts the app on the guided credentials screen, which is
@@ -109,8 +126,12 @@ func NewSetupModel(countries []config.Country, path string) Model {
 // windowTitle labels the terminal window the app runs in.
 const windowTitle = "Investec Open Banking"
 
-// Init names the window; nothing else happens until a country is chosen.
+// Init names the window and, when following a desktop theme, starts watching
+// it. Nothing else happens until a country is chosen.
 func (m Model) Init() tea.Cmd {
+	if themeFile != "" {
+		return tea.Batch(tea.SetWindowTitle(windowTitle), watchTheme(themeFile, themeModTime))
+	}
 	return tea.SetWindowTitle(windowTitle)
 }
 
@@ -146,6 +167,37 @@ func (m Model) loadBalance(accountID string) tea.Cmd {
 		balance, err := client.GetBalance(accountID)
 		return balanceLoadedMsg{balance: balance, err: err}
 	}
+}
+
+// loadHistory fetches the last historyDays of transactions for the balance
+// screen. Only the Omarchy look draws them, so elsewhere nothing is fetched.
+func (m Model) loadHistory(accountID string) tea.Cmd {
+	if !omarchyLook {
+		return nil
+	}
+	client := m.client
+	return func() tea.Msg {
+		fromDate, toDate := api.DefaultDateRange()
+		txns, err := client.GetTransactions(accountID, fromDate, toDate)
+		return historyLoadedMsg{accountID: accountID, transactions: txns, err: err}
+	}
+}
+
+// openBalance shows the balance screen for acc and starts loading it.
+func (m Model) openBalance(acc api.Account) (tea.Model, tea.Cmd) {
+	m.balance = newBalanceView(acc, m.country.Code)
+	m.state = viewBalance
+	id := acc.AccountID.String()
+	return m, tea.Batch(m.loadBalance(id), m.loadHistory(id))
+}
+
+// layoutHeight is the window height the views size their tables against.
+// Their chrome counts are for the classic layout, and the frame uses less.
+func (m Model) layoutHeight() int {
+	if omarchyLook {
+		return m.height + frameRowsSaved
+	}
+	return m.height
 }
 
 func (m Model) loadTransactions(accountID, fromDate, toDate string) tea.Cmd {
@@ -204,7 +256,7 @@ func (m Model) saveCSV(path string) tea.Cmd {
 
 func (m Model) openSaveAs(kind saveAsKind, accountNumber string) Model {
 	m.returnState = m.state
-	m.saveAs = newSaveAsView(kind, accountNumber, m.lastSaveDir, m.height)
+	m.saveAs = newSaveAsView(kind, accountNumber, m.lastSaveDir, m.bodyHeight())
 	m.state = viewSaveAs
 	return m
 }
@@ -218,10 +270,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		// The tables have to fit whatever the console gives us, which on
 		// Windows the app cannot change.
-		m.accounts.fitTo(msg.Height)
-		m.transactions.fitTo(msg.Height)
-		m.documents.fitTo(msg.Height)
-		m.saveAs.fitTo(msg.Height)
+		m.accounts.fitTo(m.bodyHeight())
+		m.transactions.fitTo(m.layoutHeight())
+		m.documents.fitTo(m.bodyHeight())
+		m.saveAs.fitTo(m.bodyHeight())
 		m.setup.fitTo(msg.Width)
 		return m, nil
 
@@ -234,7 +286,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.countryList.err = nil
 		m.client = msg.client
 		m.country = msg.country
-		m.accounts = newAccountsView(msg.country.Code, m.height)
+		m.accounts = newAccountsView(msg.country.Code, m.bodyHeight())
 		m.state = viewAccounts
 		return m, m.loadAccounts()
 
@@ -249,6 +301,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.balance.balance = msg.balance
 		m.balance.err = msg.err
 		m.balance.loading = false
+		return m, nil
+
+	case historyLoadedMsg:
+		// Ignore a slow reply for an account the user has already left.
+		if msg.accountID == m.balance.account.AccountID.String() {
+			m.balance.history = msg.transactions
+			m.balance.historyErr = msg.err
+			m.balance.historyLoading = false
+		}
 		return m, nil
 
 	case transactionsLoadedMsg:
@@ -302,6 +363,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.setup.step = setupDone
 		return m, nil
 
+	case themeCheckedMsg:
+		if msg.p != nil {
+			applyPalette(*msg.p)
+			styleInput(&m.setup.input)
+			styleInput(&m.saveAs.input)
+		}
+		return m, watchTheme(themeFile, msg.modTime)
+
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
@@ -313,6 +382,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
 	switch m.state {
+
+	// --- Splash page ---
+	case viewSplash:
+		return m.handleSplashKey(msg)
 
 	// --- Guided credentials setup ---
 	case viewSetup:
@@ -369,7 +442,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.accounts.searchQuery = ""
 				m.accounts.cursor = 0
 				m.accounts.offset = 0
-				m.accounts.fitTo(m.height)
+				m.accounts.fitTo(m.bodyHeight())
 				return m, nil
 			}
 			m.state = viewCountry
@@ -386,17 +459,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "enter":
 			accs := m.accounts.visibleAccounts()
 			if len(accs) > 0 {
-				acc := accs[m.accounts.cursor]
-				m.balance = newBalanceView(acc, m.country.Code)
-				m.state = viewBalance
-				return m, m.loadBalance(acc.AccountID.String())
+				return m.openBalance(accs[m.accounts.cursor])
 			}
 		case "r":
 			return m, m.loadAccounts()
 		case "s":
 			m.accounts.searching = true
 			// The search box takes two lines from the table.
-			m.accounts.fitTo(m.height)
+			m.accounts.fitTo(m.bodyHeight())
 		default:
 			// Typing a digit jumps straight into account number search.
 			if len(key) == 1 && key[0] >= '0' && key[0] <= '9' {
@@ -404,7 +474,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.accounts.searchQuery += key
 				m.accounts.cursor = 0
 				m.accounts.offset = 0
-				m.accounts.fitTo(m.height)
+				m.accounts.fitTo(m.bodyHeight())
 			}
 		}
 
@@ -423,7 +493,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.client.RequiresDateRange() {
 				fromDate, toDate = api.DefaultDateRange()
 			}
-			m.transactions = newTransactionsView(acc, currency, fromDate, toDate, m.height)
+			m.transactions = newTransactionsView(acc, currency, fromDate, toDate, m.layoutHeight())
 			m.state = viewTransactions
 			return m, m.loadTransactions(acc.AccountID.String(), fromDate, toDate)
 		case "p":
@@ -432,18 +502,20 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.balance.balance != nil && m.balance.balance.Currency != "" {
 				currency = m.balance.balance.Currency
 			}
-			m.transactions = newPendingTransactionsView(acc, currency, m.height)
+			m.transactions = newPendingTransactionsView(acc, currency, m.layoutHeight())
 			m.state = viewTransactions
 			return m, m.loadPendingTransactions(acc.AccountID.String())
 		case "d":
 			acc := m.balance.account
 			fromDate, toDate := api.DefaultDocumentDateRange()
-			m.documents = newDocumentsView(acc, fromDate, toDate, m.height)
+			m.documents = newDocumentsView(acc, fromDate, toDate, m.bodyHeight())
 			m.state = viewDocuments
 			return m, m.loadDocuments(acc.AccountID.String(), fromDate, toDate)
 		case "r":
 			m.balance.loading = true
-			return m, m.loadBalance(m.balance.account.AccountID.String())
+			m.balance.historyLoading = omarchyLook
+			id := m.balance.account.AccountID.String()
+			return m, tea.Batch(m.loadBalance(id), m.loadHistory(id))
 		case "q", "ctrl+c":
 			m.state = viewAccounts
 		}
@@ -463,7 +535,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.transactions.searchQuery = ""
 				m.transactions.cursor = 0
 				m.transactions.offset = 0
-				m.transactions.fitTo(m.height)
+				m.transactions.fitTo(m.layoutHeight())
 				return m, nil
 			}
 			m.state = viewBalance
@@ -479,7 +551,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		case "s":
 			m.transactions.searching = true
-			m.transactions.fitTo(m.height)
+			m.transactions.fitTo(m.layoutHeight())
 		case "f":
 			if m.transactions.pending {
 				break
@@ -598,10 +670,10 @@ func (m Model) handleTransactionSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.transactions.searchQuery = ""
 		m.transactions.cursor = 0
 		m.transactions.offset = 0
-		m.transactions.fitTo(m.height)
+		m.transactions.fitTo(m.layoutHeight())
 	case "enter":
 		m.transactions.searching = false
-		m.transactions.fitTo(m.height)
+		m.transactions.fitTo(m.layoutHeight())
 	case "backspace":
 		if len(m.transactions.searchQuery) > 0 {
 			// Drop the last rune, not the last byte, so multi-byte input is safe.
@@ -611,7 +683,7 @@ func (m Model) handleTransactionSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.transactions.offset = 0
 		} else {
 			m.transactions.searching = false
-			m.transactions.fitTo(m.height)
+			m.transactions.fitTo(m.layoutHeight())
 		}
 	case "up":
 		if m.transactions.cursor > 0 {
@@ -646,15 +718,12 @@ func (m Model) handleAccountSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.accounts.searchQuery = ""
 		m.accounts.cursor = 0
 		m.accounts.offset = 0
-		m.accounts.fitTo(m.height)
+		m.accounts.fitTo(m.bodyHeight())
 	case "enter":
 		m.accounts.searching = false
 		accs := m.accounts.visibleAccounts()
 		if len(accs) > 0 {
-			acc := accs[m.accounts.cursor]
-			m.balance = newBalanceView(acc, m.country.Code)
-			m.state = viewBalance
-			return m, m.loadBalance(acc.AccountID.String())
+			return m.openBalance(accs[m.accounts.cursor])
 		}
 	case "backspace":
 		if len(m.accounts.searchQuery) > 0 {
@@ -663,7 +732,7 @@ func (m Model) handleAccountSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.accounts.offset = 0
 		} else {
 			m.accounts.searching = false
-			m.accounts.fitTo(m.height)
+			m.accounts.fitTo(m.bodyHeight())
 		}
 	case "up":
 		if m.accounts.cursor > 0 {
@@ -760,80 +829,165 @@ func (m Model) handleDocumentEditing(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// View renders the current state.
-func (m Model) View() string {
-	var content string
+// screen is what the current view puts in the window, before the layout
+// arranges it.
+type screen struct {
+	title   string // the classic title bar
+	section string // the view's name on the Omarchy frame
+	context string // what the view is showing, at the frame's top right
+	body    string
+	help    string
+	banner  bool // whether the framed layout tops the body with the compact banner
+}
 
+// screen gathers the current view's parts.
+func (m Model) screen() screen {
 	switch m.state {
+	case viewSplash:
+		return screen{
+			section: "welcome",
+			body:    m.splash.render(m.width-2*appHPadding, m.height-frameChromeRows),
+			help:    "↑/↓ choose  •  enter select  •  u use current  •  c change credentials  •  q quit",
+		}
+
 	case viewSetup:
-		title := titleStyle.Render(m.setup.title())
-		help := helpStyle.Render(m.setup.help())
-		content = fmt.Sprintf("%s\n%s\n%s", title, m.setup.render(), help)
+		return screen{
+			title:   m.setup.title(),
+			section: "setup",
+			banner:  true,
+			context: m.setup.progress(),
+			body:    m.setup.render(),
+			help:    m.setup.help(),
+		}
 
 	case viewCountry:
-		title := titleStyle.Render("Investec Open Banking")
-		help := helpStyle.Render("↑/↓ navigate  •  enter select  •  c credentials  •  q quit")
-		content = fmt.Sprintf("%s\n%s\n%s", title, m.countryList.render(), help)
+		return screen{
+			title:   "Investec Open Banking",
+			section: "countries",
+			banner:  true,
+			body:    m.countryList.render(),
+			help:    "↑/↓ navigate  •  enter select  •  c credentials  •  q quit",
+		}
 
 	case viewAccounts:
-		title := titleStyle.Render(fmt.Sprintf("Investec Open Banking — %s", m.country.Name))
-		help := helpStyle.Render("↑/↓ navigate  •  enter select  •  s search  •  r refresh  •  esc change country  •  q quit")
+		help := "↑/↓ navigate  •  enter select  •  s search  •  r refresh  •  esc change country  •  q quit"
 		if m.accounts.searching {
-			help = helpStyle.Render("Type digits to filter account number  •  ↑/↓ navigate  •  enter select  •  esc cancel")
+			help = "Type digits to filter account number  •  ↑/↓ navigate  •  enter select  •  esc cancel"
 		}
-		content = fmt.Sprintf("%s\n%s\n%s", title, m.accounts.renderTable(), help)
+		return screen{
+			title:   fmt.Sprintf("Investec Open Banking — %s", m.country.Name),
+			section: "accounts",
+			banner:  true,
+			context: m.country.Name,
+			body:    m.accounts.renderTable(),
+			help:    help,
+		}
 
 	case viewBalance:
-		title := titleStyle.Render(fmt.Sprintf("Account Balance — %s", m.country.Name))
-		help := helpStyle.Render("t transactions  •  p pending  •  d documents  •  r refresh  •  esc back")
-		content = fmt.Sprintf("%s\n%s\n%s", title, m.balance.render(), help)
+		body := m.balance.render()
+		if omarchyLook {
+			body = m.balance.renderFramed(m.width-2*appHPadding, m.height-frameChromeRows-m.bannerRoom(), time.Now())
+		}
+		acc := m.balance.account
+		return screen{
+			title:   fmt.Sprintf("Account Balance — %s", m.country.Name),
+			section: "balance",
+			banner:  true,
+			context: accountContext(acc),
+			body:    body,
+			help:    "t transactions  •  p pending  •  d documents  •  r refresh  •  esc back",
+		}
 
 	case viewTransactions:
-		titleText := fmt.Sprintf("Transactions — %s", m.transactions.account.DisplayName())
-		help := helpStyle.Render("↑/↓ navigate  •  s search  •  f filter dates  •  e export csv  •  r refresh  •  esc back")
+		acc := m.transactions.account
+		s := screen{
+			title:   fmt.Sprintf("Transactions — %s", acc.DisplayName()),
+			section: "transactions",
+			context: accountContext(acc),
+			body:    m.transactions.render(),
+			help:    "↑/↓ navigate  •  s search  •  f filter dates  •  e export csv  •  r refresh  •  esc back",
+		}
 		if m.transactions.pending {
-			titleText = fmt.Sprintf("Pending Transactions — %s", m.transactions.account.DisplayName())
-			help = helpStyle.Render("↑/↓ navigate  •  s search  •  r refresh  •  esc back")
+			s.title = fmt.Sprintf("Pending Transactions — %s", acc.DisplayName())
+			s.section = "pending"
+			s.help = "↑/↓ navigate  •  s search  •  r refresh  •  esc back"
 		}
 		if m.transactions.editing {
-			help = helpStyle.Render("Type date (YYYY-MM-DD)  •  enter confirm  •  esc cancel")
+			s.help = "Type date (YYYY-MM-DD)  •  enter confirm  •  esc cancel"
 		}
 		if m.transactions.searching {
-			help = helpStyle.Render("Type to filter description/amount  •  ↑/↓ navigate  •  enter done  •  esc clear")
+			s.help = "Type to filter description/amount  •  ↑/↓ navigate  •  enter done  •  esc clear"
 		}
-		title := titleStyle.Render(titleText)
-		content = fmt.Sprintf("%s\n%s\n%s", title, m.transactions.render(), help)
+		return s
 
 	case viewDocuments:
-		title := titleStyle.Render(fmt.Sprintf("Documents — %s", m.documents.account.DisplayName()))
-		help := helpStyle.Render("↑/↓ navigate  •  enter download  •  f filter dates  •  r refresh  •  esc back")
+		acc := m.documents.account
+		help := "↑/↓ navigate  •  enter download  •  f filter dates  •  r refresh  •  esc back"
 		if m.documents.editing {
-			help = helpStyle.Render("Type date (YYYY-MM-DD)  •  enter confirm  •  esc cancel")
+			help = "Type date (YYYY-MM-DD)  •  enter confirm  •  esc cancel"
 		}
-		content = fmt.Sprintf("%s\n%s\n%s", title, m.documents.render(), help)
+		return screen{
+			title:   fmt.Sprintf("Documents — %s", acc.DisplayName()),
+			section: "documents",
+			banner:  true,
+			context: accountContext(acc),
+			body:    m.documents.render(),
+			help:    help,
+		}
 
 	case viewSaveAs:
-		title := titleStyle.Render("Save As")
-		help := helpStyle.Render(m.saveAs.help())
-		content = fmt.Sprintf("%s\n%s\n%s", title, m.saveAs.render(), help)
+		return screen{
+			title:   "Save As",
+			section: "save as",
+			banner:  true,
+			body:    m.saveAs.render(),
+			help:    m.saveAs.help(),
+		}
 	}
+	return screen{}
+}
+
+// accountContext names an account for the frame's top right.
+func accountContext(acc api.Account) string {
+	var parts []string
+	for _, p := range []string{acc.DisplayName(), acc.AccountNumber} {
+		if p != "" {
+			parts = append(parts, p)
+		}
+	}
+	return strings.Join(parts, " · ")
+}
+
+// View renders the current state.
+func (m Model) View() string {
+	s := m.screen()
+
+	if omarchyLook && m.width > 0 && m.height > 0 {
+		body := s.body
+		if s.banner && m.bannerRoom() > 0 {
+			body = withBanner(body, m.height-frameChromeRows)
+		}
+		return renderFrame(frame{section: s.section, context: s.context, legend: s.help}, body, m.width, m.height)
+	}
+
+	content := fmt.Sprintf("%s\n%s\n%s", titleStyle.Render(s.title), s.body, helpStyle.Render(s.help))
 
 	// Paint every cell of the window with the app's own background.
 	// Terminal.app ignores requests to change the real window background, so
 	// filling the viewport ourselves is the only way to look the same across
 	// terminal profiles.
-	screen := appStyle
+	window := appStyle
 	if m.width > 0 {
 		// Clip before padding. Width pads short lines but wraps long ones, and
 		// a wrapped table row would destroy the column alignment.
 		content = clipLines(content, m.width-2*appHPadding)
-		screen = screen.Width(m.width)
+		window = window.Width(m.width)
 	}
 	if m.height > 0 {
-		screen = screen.Height(m.height)
+		window = window.Height(m.height)
 	}
 
-	return screen.Render(content)
+	return window.Render(content)
 }
 
 // clipLines truncates every line to width, leaving short lines untouched.

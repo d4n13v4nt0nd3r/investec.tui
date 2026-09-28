@@ -19,7 +19,7 @@ Go TUI application for Investec Open Banking (Private Banking). Uses Bubble Tea 
 - `main.go` — entrypoint, resolves and loads the credentials file, starts Bubble Tea
 - `internal/config/` — `COUNTRY_LIST` parsing, per-country credential lookup, credentials-file discovery (`env_file.go`), and writing the file back out (`save.go`)
 - `internal/api/` — HTTP client and response models. All Investec API interaction lives here.
-- `internal/tui/` — Bubble Tea views and styling. Each view is a separate file.
+- `internal/tui/` — Bubble Tea views and styling. Each view is a separate file. Styles are built from a `palette` by `applyPalette()` in `styles.go`; `theme.go` swaps in the Omarchy theme on Linux (`theme_linux.go` finds it) and polls it for changes. With a theme found, `omarchyLook` is on: `View()` draws through `renderFrame` in `frame.go` instead of the title bar and help line, and views size against `layoutHeight()`. Views return their parts via `screen()` so both layouts share them. `chart.go` has the big-digit font and sparkline. Keep the classic layout unchanged for macOS/Windows; its tests assume it.
 - `internal/startup/` — platform glue for running as a downloaded app: Terminal relaunch on macOS, console pause on Windows, and the printed fallback for when there is no terminal to draw the setup screen on
 - `scripts/release.sh` — builds, signs, notarizes and publishes the Mac/Windows packages
 - `packaging/` — app icon artwork, the generated `.icns`/`.ico`, and the Python tools that build them. See `docs/releasing.md`; rebuild with `./icons`, which is only needed when the artwork changes.

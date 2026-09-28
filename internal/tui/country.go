@@ -48,7 +48,7 @@ func (v countryView) render() string {
 		row := fmt.Sprintf("  %-30s %-8s %-20s", truncate(c.Name, 28), c.Code, status)
 
 		if i == v.cursor {
-			b.WriteString(selectedRowStyle.Render("> " + row[2:]))
+			b.WriteString(selectedRow(row))
 		} else {
 			b.WriteString(normalRowStyle.Render(row))
 		}

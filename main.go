@@ -72,6 +72,9 @@ func main() {
 		os.Exit(1)
 	}
 
+	// On Omarchy the app wears the desktop's theme; elsewhere its own colours.
+	tui.UseSystemTheme()
+
 	// Nothing configured yet, so the app opens on the guided setup screen
 	// rather than telling the user to go and write a file.
 	model := tui.NewModel(countries)
