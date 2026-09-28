@@ -23,6 +23,7 @@ const (
 	viewDocuments
 	viewSetup
 	viewSaveAs
+	viewSplash
 )
 
 // Messages for async operations
@@ -90,6 +91,7 @@ type Model struct {
 	documents    documentsView
 	saveAs       saveAsView
 	setup        setupView
+	splash       splashView
 	lastSaveDir  string
 	// Pending document download target while save-as is open.
 	pendingDoc api.Document
@@ -97,12 +99,18 @@ type Model struct {
 	height     int
 }
 
-// NewModel creates the initial app model, starting on the country landing page.
+// NewModel creates the initial app model. The framed layout opens on the
+// splash page; the classic one goes straight to the country landing page.
 func NewModel(countries []config.Country) Model {
-	return Model{
+	m := Model{
 		state:       viewCountry,
 		countryList: newCountryView(countries),
 	}
+	if omarchyLook {
+		m.state = viewSplash
+		m.splash = newSplashView(countries)
+	}
+	return m
 }
 
 // NewSetupModel starts the app on the guided credentials screen, which is
@@ -248,7 +256,7 @@ func (m Model) saveCSV(path string) tea.Cmd {
 
 func (m Model) openSaveAs(kind saveAsKind, accountNumber string) Model {
 	m.returnState = m.state
-	m.saveAs = newSaveAsView(kind, accountNumber, m.lastSaveDir, m.layoutHeight())
+	m.saveAs = newSaveAsView(kind, accountNumber, m.lastSaveDir, m.bodyHeight())
 	m.state = viewSaveAs
 	return m
 }
@@ -262,10 +270,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		// The tables have to fit whatever the console gives us, which on
 		// Windows the app cannot change.
-		m.accounts.fitTo(m.layoutHeight())
+		m.accounts.fitTo(m.bodyHeight())
 		m.transactions.fitTo(m.layoutHeight())
-		m.documents.fitTo(m.layoutHeight())
-		m.saveAs.fitTo(m.layoutHeight())
+		m.documents.fitTo(m.bodyHeight())
+		m.saveAs.fitTo(m.bodyHeight())
 		m.setup.fitTo(msg.Width)
 		return m, nil
 
@@ -278,7 +286,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.countryList.err = nil
 		m.client = msg.client
 		m.country = msg.country
-		m.accounts = newAccountsView(msg.country.Code, m.layoutHeight())
+		m.accounts = newAccountsView(msg.country.Code, m.bodyHeight())
 		m.state = viewAccounts
 		return m, m.loadAccounts()
 
@@ -375,6 +383,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch m.state {
 
+	// --- Splash page ---
+	case viewSplash:
+		return m.handleSplashKey(msg)
+
 	// --- Guided credentials setup ---
 	case viewSetup:
 		return m.handleSetupKey(msg)
@@ -430,7 +442,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.accounts.searchQuery = ""
 				m.accounts.cursor = 0
 				m.accounts.offset = 0
-				m.accounts.fitTo(m.layoutHeight())
+				m.accounts.fitTo(m.bodyHeight())
 				return m, nil
 			}
 			m.state = viewCountry
@@ -454,7 +466,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "s":
 			m.accounts.searching = true
 			// The search box takes two lines from the table.
-			m.accounts.fitTo(m.layoutHeight())
+			m.accounts.fitTo(m.bodyHeight())
 		default:
 			// Typing a digit jumps straight into account number search.
 			if len(key) == 1 && key[0] >= '0' && key[0] <= '9' {
@@ -462,7 +474,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.accounts.searchQuery += key
 				m.accounts.cursor = 0
 				m.accounts.offset = 0
-				m.accounts.fitTo(m.layoutHeight())
+				m.accounts.fitTo(m.bodyHeight())
 			}
 		}
 
@@ -496,7 +508,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "d":
 			acc := m.balance.account
 			fromDate, toDate := api.DefaultDocumentDateRange()
-			m.documents = newDocumentsView(acc, fromDate, toDate, m.layoutHeight())
+			m.documents = newDocumentsView(acc, fromDate, toDate, m.bodyHeight())
 			m.state = viewDocuments
 			return m, m.loadDocuments(acc.AccountID.String(), fromDate, toDate)
 		case "r":
@@ -706,7 +718,7 @@ func (m Model) handleAccountSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.accounts.searchQuery = ""
 		m.accounts.cursor = 0
 		m.accounts.offset = 0
-		m.accounts.fitTo(m.layoutHeight())
+		m.accounts.fitTo(m.bodyHeight())
 	case "enter":
 		m.accounts.searching = false
 		accs := m.accounts.visibleAccounts()
@@ -720,7 +732,7 @@ func (m Model) handleAccountSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.accounts.offset = 0
 		} else {
 			m.accounts.searching = false
-			m.accounts.fitTo(m.layoutHeight())
+			m.accounts.fitTo(m.bodyHeight())
 		}
 	case "up":
 		if m.accounts.cursor > 0 {
@@ -825,15 +837,24 @@ type screen struct {
 	context string // what the view is showing, at the frame's top right
 	body    string
 	help    string
+	banner  bool // whether the framed layout tops the body with the compact banner
 }
 
 // screen gathers the current view's parts.
 func (m Model) screen() screen {
 	switch m.state {
+	case viewSplash:
+		return screen{
+			section: "welcome",
+			body:    m.splash.render(m.width-2*appHPadding, m.height-frameChromeRows),
+			help:    "↑/↓ choose  •  enter select  •  u use current  •  c change credentials  •  q quit",
+		}
+
 	case viewSetup:
 		return screen{
 			title:   m.setup.title(),
 			section: "setup",
+			banner:  true,
 			context: m.setup.progress(),
 			body:    m.setup.render(),
 			help:    m.setup.help(),
@@ -843,6 +864,7 @@ func (m Model) screen() screen {
 		return screen{
 			title:   "Investec Open Banking",
 			section: "countries",
+			banner:  true,
 			body:    m.countryList.render(),
 			help:    "↑/↓ navigate  •  enter select  •  c credentials  •  q quit",
 		}
@@ -855,6 +877,7 @@ func (m Model) screen() screen {
 		return screen{
 			title:   fmt.Sprintf("Investec Open Banking — %s", m.country.Name),
 			section: "accounts",
+			banner:  true,
 			context: m.country.Name,
 			body:    m.accounts.renderTable(),
 			help:    help,
@@ -863,12 +886,13 @@ func (m Model) screen() screen {
 	case viewBalance:
 		body := m.balance.render()
 		if omarchyLook {
-			body = m.balance.renderFramed(m.width-2*appHPadding, m.height-frameChromeRows, time.Now())
+			body = m.balance.renderFramed(m.width-2*appHPadding, m.height-frameChromeRows-m.bannerRoom(), time.Now())
 		}
 		acc := m.balance.account
 		return screen{
 			title:   fmt.Sprintf("Account Balance — %s", m.country.Name),
 			section: "balance",
+			banner:  true,
 			context: accountContext(acc),
 			body:    body,
 			help:    "t transactions  •  p pending  •  d documents  •  r refresh  •  esc back",
@@ -905,6 +929,7 @@ func (m Model) screen() screen {
 		return screen{
 			title:   fmt.Sprintf("Documents — %s", acc.DisplayName()),
 			section: "documents",
+			banner:  true,
 			context: accountContext(acc),
 			body:    m.documents.render(),
 			help:    help,
@@ -914,6 +939,7 @@ func (m Model) screen() screen {
 		return screen{
 			title:   "Save As",
 			section: "save as",
+			banner:  true,
 			body:    m.saveAs.render(),
 			help:    m.saveAs.help(),
 		}
@@ -937,7 +963,11 @@ func (m Model) View() string {
 	s := m.screen()
 
 	if omarchyLook && m.width > 0 && m.height > 0 {
-		return renderFrame(frame{section: s.section, context: s.context, legend: s.help}, s.body, m.width, m.height)
+		body := s.body
+		if s.banner && m.bannerRoom() > 0 {
+			body = withBanner(body, m.height-frameChromeRows)
+		}
+		return renderFrame(frame{section: s.section, context: s.context, legend: s.help}, body, m.width, m.height)
 	}
 
 	content := fmt.Sprintf("%s\n%s\n%s", titleStyle.Render(s.title), s.body, helpStyle.Render(s.help))

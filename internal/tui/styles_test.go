@@ -17,6 +17,8 @@ func countryModel(width, height int) Model {
 		{Name: "South Africa", Code: "ZA", ClientID: "id", ClientSecret: "secret", APIKey: "key"},
 		{Name: "Mauritius", Code: "MU", ClientID: "id", ClientSecret: "secret", APIKey: "key"},
 	})
+	// The framed layout opens on the splash page; start past it.
+	m.state = viewCountry
 	m.width, m.height = width, height
 	return m
 }
