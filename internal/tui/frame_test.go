@@ -10,18 +10,23 @@ import (
 	"investec.openbanking.tui/internal/api"
 )
 
-// useOmarchyLook switches to the framed layout in Tokyo Night for the rest of
-// the test. Tests that call it must not run in parallel.
-func useOmarchyLook(t *testing.T) {
+// useFramedLook switches to the framed layout in Tokyo Night, with the Nerd
+// Font icons, for the rest of the test. Tests that call it must not run in
+// parallel.
+func useFramedLook(t *testing.T) {
 	t.Helper()
 	p, ok := omarchyPalette(parseColors([]byte(tokyoNight)))
 	if !ok {
 		t.Fatal("test theme was rejected")
 	}
 	usePalette(t, p)
-	omarchyLook = true
-	t.Cleanup(func() { omarchyLook = false })
+	useGlyphs(t, nerdGlyphs)
+	framedLook = true
+	t.Cleanup(func() { framedLook = false })
 }
+
+// glyphSets is every set the frame has to draw correctly, by name.
+var glyphSets = map[string]glyphSet{"nerd": nerdGlyphs, "plain": plainGlyphs}
 
 // historyFixture is 90 days of one debit a day and a monthly salary.
 func historyFixture(today time.Time) []api.Transaction {
@@ -60,7 +65,7 @@ func balanceModel(width, height int) Model {
 }
 
 func TestFramedView_FillsTheWindowExactly(t *testing.T) {
-	useOmarchyLook(t)
+	useFramedLook(t)
 
 	sizes := []struct {
 		name          string
@@ -80,49 +85,60 @@ func TestFramedView_FillsTheWindowExactly(t *testing.T) {
 		"setup checking":    func(w, h int) Model { return setupModel(setupChecking, w, h) },
 	}
 
-	for name, build := range views {
-		for _, s := range sizes {
-			t.Run(name+"/"+s.name, func(t *testing.T) {
-				// Arrange
-				m := resize(build(s.width, s.height), s.width, s.height)
+	for setName, set := range glyphSets {
+		for name, build := range views {
+			for _, s := range sizes {
+				t.Run(setName+"/"+name+"/"+s.name, func(t *testing.T) {
+					// Arrange
+					useGlyphs(t, set)
+					m := resize(build(s.width, s.height), s.width, s.height)
 
-				// Act
-				lines := strings.Split(m.View(), "\n")
+					// Act
+					lines := strings.Split(m.View(), "\n")
 
-				// Assert
-				if len(lines) != s.height {
-					t.Errorf("view is %d lines, want %d", len(lines), s.height)
-				}
-				for i, line := range lines {
-					if got := lipgloss.Width(line); got != s.width {
-						t.Errorf("line %d is %d cells wide, want %d: %q", i, got, s.width, line)
-						break
+					// Assert
+					if len(lines) != s.height {
+						t.Errorf("view is %d lines, want %d", len(lines), s.height)
 					}
-				}
-			})
+					for i, line := range lines {
+						if got := lipgloss.Width(line); got != s.width {
+							t.Errorf("line %d is %d cells wide, want %d: %q", i, got, s.width, line)
+							break
+						}
+					}
+				})
+			}
 		}
 	}
 }
 
 func TestFramedView_PutsTitleAndLegendOnTheBorder(t *testing.T) {
-	useOmarchyLook(t)
+	useFramedLook(t)
 
-	// Act
-	lines := strings.Split(countryModel(100, 30).View(), "\n")
-	top, bottom := ansiStrip(lines[0]), ansiStrip(lines[len(lines)-1])
+	for setName, set := range glyphSets {
+		t.Run(setName, func(t *testing.T) {
+			// Arrange
+			useGlyphs(t, set)
 
-	// Assert
-	if !strings.HasPrefix(top, "╭─ "+brandGlyph+" investec · countries ") || !strings.HasSuffix(top, "─╮") {
-		t.Errorf("top border is %q", top)
-	}
-	if !strings.HasPrefix(bottom, "╰─ ↑/↓ navigate  enter select") || !strings.HasSuffix(bottom, "─╯") {
-		t.Errorf("bottom border is %q", bottom)
-	}
-	for _, line := range lines[1 : len(lines)-1] {
-		plain := ansiStrip(line)
-		if !strings.HasPrefix(plain, "│") || !strings.HasSuffix(plain, "│") {
-			t.Fatalf("body line is not between the side borders: %q", plain)
-		}
+			// Act
+			lines := strings.Split(countryModel(100, 30).View(), "\n")
+			top, bottom := ansiStrip(lines[0]), ansiStrip(lines[len(lines)-1])
+
+			// Assert: the brand mark carries its own spacing, so the plain
+			// set leaves no gap where it would have been.
+			if !strings.HasPrefix(top, "╭─ "+set.brand+"investec · countries ") || !strings.HasSuffix(top, "─╮") {
+				t.Errorf("top border is %q", top)
+			}
+			if !strings.HasPrefix(bottom, "╰─ ↑/↓ navigate  enter select") || !strings.HasSuffix(bottom, "─╯") {
+				t.Errorf("bottom border is %q", bottom)
+			}
+			for _, line := range lines[1 : len(lines)-1] {
+				plain := ansiStrip(line)
+				if !strings.HasPrefix(plain, "│") || !strings.HasSuffix(plain, "│") {
+					t.Fatalf("body line is not between the side borders: %q", plain)
+				}
+			}
+		})
 	}
 }
 
@@ -130,7 +146,7 @@ func TestFramedView_PutsTitleAndLegendOnTheBorder(t *testing.T) {
 // the frame: a full page with the footer still showing, not cut off by the
 // bottom border.
 func TestFramedView_TablesUseTheRoomTheFrameGives(t *testing.T) {
-	useOmarchyLook(t)
+	useFramedLook(t)
 
 	views := map[string]Model{
 		"accounts":     resize(accountsModel(100, 30, 60), 100, 30),
@@ -154,7 +170,7 @@ func TestFramedView_TablesUseTheRoomTheFrameGives(t *testing.T) {
 }
 
 func TestFramedView_DrawsDividers(t *testing.T) {
-	useOmarchyLook(t)
+	useFramedLook(t)
 
 	view := ansiStrip(balanceModel(100, 35).View())
 
@@ -164,7 +180,7 @@ func TestFramedView_DrawsDividers(t *testing.T) {
 }
 
 func TestFramedBalance_ShowsBigDigitsAndTrend(t *testing.T) {
-	useOmarchyLook(t)
+	useFramedLook(t)
 
 	view := ansiStrip(balanceModel(100, 35).View())
 
@@ -181,7 +197,7 @@ func TestFramedBalance_ShowsBigDigitsAndTrend(t *testing.T) {
 }
 
 func TestFramedBalance_IgnoresHistoryForAnotherAccount(t *testing.T) {
-	useOmarchyLook(t)
+	useFramedLook(t)
 
 	// Arrange
 	m := balanceModel(100, 30)
@@ -197,7 +213,7 @@ func TestFramedBalance_IgnoresHistoryForAnotherAccount(t *testing.T) {
 }
 
 func TestTransactionRow_ColoursByDirection(t *testing.T) {
-	useOmarchyLook(t)
+	useFramedLook(t)
 	credit := api.Transaction{Type: "CREDIT", Description: "SALARY", TransactionDate: "2026-09-25", Amount: 48000}
 	debit := api.Transaction{Type: "DEBIT", Description: "UBER", TransactionDate: "2026-09-24", Amount: 186}
 

@@ -11,7 +11,7 @@ import (
 // splashModel opens the framed layout on its splash page.
 func splashModel(t *testing.T, width, height int) Model {
 	t.Helper()
-	useOmarchyLook(t)
+	useFramedLook(t)
 	return resize(NewModel([]config.Country{
 		{Name: "South Africa", Code: "ZA", ClientID: "id", ClientSecret: "secret", APIKey: "key"},
 	}), width, height)
@@ -101,7 +101,7 @@ func TestSplash_FillsTheWindowWithTheRightBanner(t *testing.T) {
 }
 
 func TestBanner_TopsEveryViewButTransactions(t *testing.T) {
-	useOmarchyLook(t)
+	useFramedLook(t)
 
 	views := map[string]struct {
 		build func(w, h int) Model
@@ -131,7 +131,7 @@ func TestBanner_TopsEveryViewButTransactions(t *testing.T) {
 }
 
 func TestBanner_DroppedWhenTheWindowIsShort(t *testing.T) {
-	useOmarchyLook(t)
+	useFramedLook(t)
 
 	// Arrange
 	m := resize(countryModel(100, 16), 100, 16)

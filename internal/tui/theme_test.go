@@ -138,6 +138,75 @@ func TestCheckTheme_KeepsCurrentThemeWhileFileIsMissing(t *testing.T) {
 	}
 }
 
+func TestTerminalPalette_LeavesTextAndBackgroundToTheTerminal(t *testing.T) {
+	for _, dark := range []bool{true, false} {
+		// Act
+		p := terminalPalette(dark)
+
+		// Assert
+		if _, unset := p.bg.(lipgloss.NoColor); !unset {
+			t.Errorf("dark=%v: background is painted %v, want the terminal's own", dark, p.bg)
+		}
+		if _, unset := p.text.(lipgloss.NoColor); !unset {
+			t.Errorf("dark=%v: body text is %v, want the terminal's own", dark, p.text)
+		}
+		// header is the selected row's text, so the two have to differ.
+		if p.header == p.selectedBg {
+			t.Errorf("dark=%v: selected row is %v on %v", dark, p.header, p.selectedBg)
+		}
+		if p.credit == p.debit {
+			t.Errorf("dark=%v: money in and out are both %v", dark, p.credit)
+		}
+	}
+}
+
+// TestTerminalPalette_AdaptsToTheBackground checks the roles that have to
+// change with the terminal's background to stay readable.
+func TestTerminalPalette_AdaptsToTheBackground(t *testing.T) {
+	dark, light := terminalPalette(true), terminalPalette(false)
+
+	tests := []struct {
+		role        string
+		dark, light lipgloss.TerminalColor
+	}{
+		{role: "accent", dark: dark.primary, light: light.primary},
+		{role: "bright text", dark: dark.header, light: light.header},
+		{role: "selected background", dark: dark.selectedBg, light: light.selectedBg},
+	}
+	for _, tt := range tests {
+		if tt.dark == tt.light {
+			t.Errorf("%s is %v on both a dark and a light terminal", tt.role, tt.dark)
+		}
+	}
+}
+
+// TestView_TerminalThemePaintsNothingOfItsOwn is the macOS and Windows
+// counterpart of the Omarchy check: following the terminal means leaving its
+// background be, while still filling every cell of the window.
+func TestView_TerminalThemePaintsNothingOfItsOwn(t *testing.T) {
+	previous := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(previous) })
+
+	// Arrange
+	usePalette(t, terminalPalette(true))
+	m := countryModel(120, 35)
+
+	// Act
+	view := m.View()
+
+	// Assert
+	if strings.Contains(view, termenv.TrueColor.Color("#0D1117").Sequence(true)) {
+		t.Error("the app's own #0D1117 background is still painted")
+	}
+	for i, line := range strings.Split(view, "\n") {
+		if got := lipgloss.Width(line); got != 120 {
+			t.Errorf("line %d is %d cells wide, want 120", i, got)
+			break
+		}
+	}
+}
+
 // TestView_OmarchyThemeUsesItsColours checks the rendered screen, not just the
 // palette: the title bar carries the theme's accent, and nothing paints over
 // the terminal's own background.
