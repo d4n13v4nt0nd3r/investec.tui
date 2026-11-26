@@ -49,8 +49,8 @@ func (v balanceView) render() string {
 	b.WriteString(subtitleStyle.Render(fmt.Sprintf("%s  (%s)", v.account.DisplayName(), v.account.AccountNumber)))
 	b.WriteString("\n")
 
-	if v.countryCode == "ZA" {
-		b.WriteString(normalRowStyle.Render(fmt.Sprintf("AccountID: %s", v.account.AccountID.String())))
+	if id := v.account.AccountID.String(); id != "" {
+		b.WriteString(normalRowStyle.Render(fmt.Sprintf("AccountID: %s", id)))
 		b.WriteString("\n")
 	}
 
@@ -128,7 +128,7 @@ func (v balanceView) renderFramed(width, rows int, today time.Time) string {
 	} else if v.balance.AccountType != "" {
 		details = append(details, v.balance.AccountType)
 	}
-	if id := v.account.AccountID.String(); v.countryCode == "ZA" && id != "" {
+	if id := v.account.AccountID.String(); id != "" {
 		details = append(details, "id "+id)
 	}
 	if len(details) > 0 {
