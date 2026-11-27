@@ -48,6 +48,26 @@ cd investec.tui
 
 Each user needs their own Investec Open Banking API keys. Credentials are personal and must **never** be shared.
 
+### API permissions: read-only access only
+
+When Investec asks **Select the permissions this key will have access to**, enable:
+
+- **Your account name and number**
+- **Your account balance**
+- **Your transactions**
+- **View statements**
+- **View tax certificates** -- optional, only if you want to download tax certificates
+
+Always leave these permissions **unticked**:
+
+- **Allow inter account transfers**
+- **Allow beneficiary payments**
+- **View and update card code**
+
+> **Important:** Only ever use read-only Investec API permissions with this app. Never enable payments, transfers, or card-code updates. If an existing key has any of these permissions enabled, remove them in Investec before using it with the app.
+
+### Get the credentials
+
 1. Open [Investec Online](https://login.secure.investec.com) and log in
 2. Open **Programmable Banking**, then the **Open API** tab
 3. If you see **Enroll**, click it once to enable API access
